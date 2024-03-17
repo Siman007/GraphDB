@@ -1,0 +1,109 @@
+﻿html {
+    font-size: 14px;
+}
+
+@media (min-width: 768px) {
+    html {
+        font-size: 16px;
+    }
+}
+
+body {
+    margin-bottom: 60px; /* Space for footer or additional content */
+    font-family: Arial, sans-serif; /* Ensuring a consistent and readable font is used */
+}
+
+/* Button and input focus outline */
+.btn:focus, .btn:active:focus, .btn-link.nav-link:focus, .form-control:focus, .form-check-input:focus {
+    box-shadow: 0 0 0 0.2rem rgba(38, 143, 255, 0.5);
+}
+
+/* Command history section styling */
+.command-history {
+    /* max-height: 400px;*/
+    overflow-y: auto;
+    margin-top: 20px;
+    background-color: #f8f9fa;
+    border: 1px solid #e9ecef;
+    padding: 15px;
+    border-radius: 0.25rem;
+    overflow-y: auto; /* Enables vertical scrolling */
+}
+
+
+/* Individual command response styling */
+.command-response-box {
+    border: 1px solid #dee2e6;
+    padding: 10px;
+    margin-bottom: 10px;
+    border-radius: 0.25rem;
+    background-color: #ffffff;
+}
+
+/* Command input styling */
+.command-input input[type="text"] {
+    width: calc(100% - 120px); /* Adjusting width to ensure input and button fit in one line */
+    padding: 0.5rem;
+    margin-right: 10px;
+    border-radius: 0.25rem;
+    border: 1px solid #ced4da;
+}
+
+.command-input button[type="submit"] {
+    padding: 0.5rem 1rem;
+    color: #fff;
+    background-color: #007bff;
+    border-color: #007bff;
+    border-radius: 0.25rem;
+    cursor: pointer;
+}
+
+/* Adjusting form display for inline elements */
+form {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+/* Enhancing the look of the delete button within the command history */
+.delete-command-form button {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    border-radius: 0.2rem;
+    color: #fff;
+    background-color: #dc3545;
+    border-color: #dc3545;
+    margin-left: 10px; /* Adding some space between the response text and the delete button */
+}
+
+.form-container {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.flex-container {
+    display: flex;
+    flex-direction: row;
+    gap: 10px; /* Adjust gap between input and button */
+}
+
+.flex-input {
+    flex-grow: 1; /* Makes the input take up available space */
+}
+
+/* Additional styling for headings and paragraphs for better readability */
+h2, h3, p {
+    margin: 0.5rem 0;
+}
+
+/* Styling links for better visibility */
+a {
+    color: #007bff;
+    text-decoration: none;
+}
+
+    a:hover {
+        text-decoration: underline;
+    }

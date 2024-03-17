@@ -1,0 +1,53 @@
+﻿
+@page
+@using System.Linq
+@model GraphDB.Pages.IndexModel
+<!-- Database Status Display -->
+<section class="database-status">
+    <!-- h2@Model.Message</! -->
+    <p>@(Model.IsDatabaseLoaded ? $"Current database: @Model.CurrentDatabase" : "No database is currently loaded.")</p>
+</section>
+
+<!-- Command Input Form -->
+<section class="command-input">
+    <form method="post" asp-page-handler="ExecuteCommand" class="form-container">
+        <div class="form-group flex-container">
+            <input type="text" asp-for="Command.Command" placeholder="Enter command" class="form-control flex-input" />
+            <button type="submit" class="btn btn-primary">Execute</button>
+        </div>
+    </form>
+</section>
+
+<!-- Command History Display -->
+<section class="command-history">
+    <!-->Command History</!-->
+    <!-- Delete History Button -->
+    <form method="post" asp-page-handler="DeleteHistory">
+        <button type="submit" class="btn btn-warning">Clear History</button>
+    </form>
+    @if (Model.Command.History.Any())
+    {
+        @foreach (var item in Model.Command.History.Select((value, index) => new { value, index }))
+        {
+            <div class="command-response-box">
+                <p><strong>Command:</strong> @item.value.Command</p>
+                <p><strong>Response:</strong> @Html.Raw(item.value.Response)</p>
+                <div class="button-group" style="display: flex; justify-content: space-between;">
+                    <form method="post" asp-page-handler="DeleteCommand" class="action-form">
+                        <input type="hidden" name="index" value="@item.index" />
+                        <button type="submit" class="btn btn-danger">Delete</button>
+                    </form>
+                    <!-- New Execute Command Form -->
+                    <form method="post" asp-page-handler="ReExecuteCommand" class="action-form">
+                        <input type="hidden" name="commandToExecute" value="@item.value.Command" />
+                        <button type="submit" class="btn btn-secondary">Execute</button>
+                    </form>
+                </div>
+            </div>
+        }
+    }
+    else
+    {
+        <!-- p>No history available.</!-->
+    }
+</section>
