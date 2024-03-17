@@ -21,16 +21,17 @@ namespace GraphDB
         public class Graph
         {
             private const string DefaultFilePath = "data"; // Relative path to store graph data
-            private  static  string _graphPath;
-        private static bool IsDatabaseLoaded=false;
+            private static string _graphPath="";
+            private static string _graphName="";
+            public static bool isDatabaseLoaded=false;
 
             public List<Node> Nodes { get; set; } = new List<Node>();
             public List<Edge> Edges { get; set; } = new List<Edge>();
 
             public Graph(string graphName)
             {
+                _graphName = graphName;
                 _graphPath = Path.Combine(DefaultFilePath, $"{graphName}.json");
-                LoadGraph();
             }
 
             public void AddNode(Node node)
@@ -109,11 +110,11 @@ namespace GraphDB
                 {
                 if ((cypher.Equals("help", StringComparison.OrdinalIgnoreCase) ||
                     cypher.Equals("h", StringComparison.OrdinalIgnoreCase) ||
-                    cypher.Equals("?", StringComparison.OrdinalIgnoreCase)) && !IsDatabaseLoaded)
+                    cypher.Equals("?", StringComparison.OrdinalIgnoreCase)) && !isDatabaseLoaded)
                     {
                         return CommandUtility.GetHelpResponse();
                     }
-                else if (!IsDatabaseLoaded)
+                else if (!isDatabaseLoaded)
                     {
                         return "No database is loaded. Please load or create a database first. Use 'help' for more information.";
                     } else if (cypher.StartsWith("CREATE", StringComparison.OrdinalIgnoreCase))
@@ -186,17 +187,19 @@ namespace GraphDB
                 }
             }
 
-        private string ExtractFilePath(string graphName)
+        public static string GetDatabaseName()
         {
-            return Path.Combine(DefaultFilePath, $"{graphName}.json");
+            return _graphName;
             
         }
         public static  string GetDatabasePath()
         {
             return _graphPath;
-
         }
-
+        public  Boolean  GetDatabaseLoaded()
+        {
+            return isDatabaseLoaded;
+        }
 
         private string HandleCreateCypher(string cypher)
             {
@@ -736,69 +739,97 @@ Help commands: help, h, ?
         }
 
 
-            // EXPORT CSV NODES filePath='path/to/export/nodes.csv'
-            // EXPORT CSV EDGES filePath = 'path/to/export/edges.csv'
-             public string HandleExportCsvCypher(string cypher)
+        // EXPORT CSV NODES filePath='path/to/export/nodes.csv'
+        // EXPORT CSV EDGES filePath = 'path/to/export/edges.csv'
+        public string HandleExportCsvCypher(string cypher)
+        {
+            var matchNodes = Regex.Match(cypher, @"EXPORT CSV NODES filePath='(?<filePath>.+?)'", RegexOptions.IgnoreCase);
+            var matchEdges = Regex.Match(cypher, @"EXPORT CSV EDGES filePath='(?<filePath>.+?)'", RegexOptions.IgnoreCase);
+
+            if (matchNodes.Success)
             {
-                var matchNodes = Regex.Match(cypher, @"EXPORT CSV NODES filePath='(?<filePath>.+?)'", RegexOptions.IgnoreCase);
-                var matchEdges = Regex.Match(cypher, @"EXPORT CSV EDGES filePath='(?<filePath>.+?)'", RegexOptions.IgnoreCase);
-
-                if (matchNodes.Success)
-                {
-                    var filePath = matchNodes.Groups["filePath"].Value;
-                    return ExportNodesToCsv(filePath) ? $"Nodes exported to CSV successfully at {filePath}." : "Failed to export nodes to CSV.";
-                }
-                else if (matchEdges.Success)
-                {
-                    var filePath = matchEdges.Groups["filePath"].Value;
-                    return ExportEdgesToCsv(filePath) ? $"Edges exported to CSV successfully at {filePath}." : "Failed to export edges to CSV.";
-                }
-
-                return "Invalid EXPORT CSV command.";
+                var filePath = matchNodes.Groups["filePath"].Value;
+                return ExportNodesToCsv(filePath) ? $"Nodes exported to CSV successfully at {filePath}." : "Failed to export nodes to CSV.";
             }
-            public bool ExportNodesToCsv(string filePath)
+            else if (matchEdges.Success)
+            {
+                var filePath = matchEdges.Groups["filePath"].Value;
+                return ExportEdgesToCsv(filePath) ? $"Edges exported to CSV successfully at {filePath}." : "Failed to export edges to CSV.";
+            }
+
+            return "Invalid EXPORT CSV command.";
+        }
+        public bool ExportNodesToCsv(string filePath)
+        {
+            try
+            {
+                using (var writer = new StreamWriter(filePath))
+                using (var csv = new CsvWriter(writer, CultureInfo.InvariantCulture))
+                {
+                    csv.WriteRecords(Nodes);
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error exporting nodes to CSV: {ex.Message}");
+                return false;
+            }
+        }
+
+        public bool ExportEdgesToCsv(string filePath)
+        {
+            try
+            {
+                using (var writer = new StreamWriter(filePath))
+                using (var csv = new CsvWriter(writer, CultureInfo.InvariantCulture))
+                {
+                    csv.WriteRecords(Edges.Select(e => new
+                    {
+                        e.FromId,
+                        e.ToId,
+                        e.Relationship,
+                        e.Weight,
+                        Properties = string.Join(", ", e.Properties.Select(p => $"{p.Key}: {p.Value}"))
+                    }));
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error exporting edges to CSV: {ex.Message}");
+                return false;
+            }
+        }
+
+
+        public String CreateDatabase()
+        {
+            isDatabaseLoaded = false;
+            if (string.IsNullOrWhiteSpace(_graphName))
+            {
+                return "Database name must be provided.";
+            }
+            else if (File.Exists(_graphPath))
+            {
+                return $"Database ({_graphPath}) already exists.";
+            }
+            else
             {
                 try
                 {
-                    using (var writer = new StreamWriter(filePath))
-                    using (var csv = new CsvWriter(writer, CultureInfo.InvariantCulture))
-                    {
-                        csv.WriteRecords(Nodes);
-                    }
-                    return true;
+                    Nodes = new List<Node>();
+                    Edges = new List<Edge>();
+                    SaveToFile();
+                    isDatabaseLoaded = true;
+                    return $"Graph '{_graphName}' created and saved.";
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Error exporting nodes to CSV: {ex.Message}");
-                    return false;
+                    return $"Failed to create database ({_graphName})";
                 }
             }
-
-            public bool ExportEdgesToCsv(string filePath)
-            {
-                try
-                {
-                    using (var writer = new StreamWriter(filePath))
-                    using (var csv = new CsvWriter(writer, CultureInfo.InvariantCulture))
-                    {
-                        csv.WriteRecords(Edges.Select(e => new
-                        {
-                            e.FromId,
-                            e.ToId,
-                            e.Relationship,
-                            e.Weight,
-                            Properties = string.Join(", ", e.Properties.Select(p => $"{p.Key}: {p.Value}"))
-                        }));
-                    }
-                    return true;
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error exporting edges to CSV: {ex.Message}");
-                    return false;
-                }
-            }
-
+        }
 
             public void SaveToFile()
             {
@@ -834,7 +865,7 @@ Help commands: help, h, ?
 
             public void LoadGraph()
             {
-                IsDatabaseLoaded = false;
+                isDatabaseLoaded = false;
                 if (!File.Exists(_graphPath))
                 {
                     Console.WriteLine("Graph file does not exist, initializing a new graph.");
@@ -853,7 +884,7 @@ Help commands: help, h, ?
                         e.To = this.Nodes.FirstOrDefault(n => n.Id == e.ToId);
                         return e;
                     }).ToList();
-                IsDatabaseLoaded = true;
+                isDatabaseLoaded = true;
                 }
                 catch (JsonException ex)
                 {

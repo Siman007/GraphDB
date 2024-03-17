@@ -147,15 +147,29 @@ namespace GraphDB.Pages
         {
             // Logic to create a new database
             // For simplicity, this just sets the session value
-            LoadCommandModelFromSession(); // Ensure you have the latest history
-            HttpContext.Session.SetString("CurrentDatabase", databaseName);
+            LoadCommandModelFromSession(); // Ensure we have the latest history
+          
             var graph = new Graph(databaseName);
-            graph.SaveToFile();
+
+          
+            Command.History.Insert(0, new CommandResponse { Command = $"create {databaseName}", Response = graph.CreateDatabase()});
+            if (graph.GetDatabaseLoaded())
+            {
+                HttpContext.Session.SetString("CurrentDatabase", databaseName);
+            }
+            else
+            {
+
+            }
+
+            // Serialize the updated Command object and save it back into the session
+            var modelJson = JsonSerializer.Serialize(Command);
+            HttpContext.Session.SetString("CommandModel", modelJson);
         }
 
         private void LoadDatabase(string databaseName)
         {
-            LoadCommandModelFromSession(); // Ensure you have the latest history
+            LoadCommandModelFromSession(); // Ensure we have the latest history
             HttpContext.Session.SetString("CurrentDatabase", databaseName);
         }
 
