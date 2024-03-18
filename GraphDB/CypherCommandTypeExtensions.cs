@@ -26,6 +26,7 @@ namespace GraphDB
         AggregateSum, 
         AggregateAvg,
         FindRelationships,
+        FindNeighbors,
         MatchPattern,
         // Extend with other command types as necessary
     }

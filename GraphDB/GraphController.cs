@@ -59,6 +59,18 @@ namespace GraphDB
             }
         }
 
+        [HttpGet("findneighbors")]
+        public ActionResult<List<Node>> FindNeighbors([FromQuery] string cypher)
+        {
+            var neighbors = graph.HandleFindNeighbors(cypher);
+
+            if (neighbors == null || !neighbors.Any())
+            {
+                return NotFound("No neighbors found.");
+            }
+
+            return Ok(neighbors);
+        }
 
         [HttpPost("create")]
         public IActionResult CreateGraph([FromBody] GraphDbRequest request)

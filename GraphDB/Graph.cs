@@ -1,16 +1,16 @@
 ﻿using System;
 
-    using System;
-    using System.Collections.Generic;
-    using System.Linq;
-    using System.Reflection.Emit;
-    using System.Text.RegularExpressions;
-    using Newtonsoft.Json;
-    using System.IO;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection.Emit;
+using System.Text.RegularExpressions;
+using Newtonsoft.Json;
+using System.IO;
 
-    using CsvHelper;
-    using CsvHelper.Configuration;
-    using CsvHelper.TypeConversion;
+using CsvHelper;
+using CsvHelper.Configuration;
+using CsvHelper.TypeConversion;
 using System.Globalization;
 using System.Text;
 
@@ -84,6 +84,9 @@ namespace GraphDB
                     return HandleAggregateAvg(cypher);
                 case CypherCommandType.FindRelationships:
                     return HandleFindRelationships(cypher);
+                case CypherCommandType.FindNeighbors:
+                    return HandleFindNeighbors(cypher);
+                    
                 case CypherCommandType.MatchPattern:
                     return HandleMatchPattern(cypher);
                 default:
@@ -554,21 +557,49 @@ namespace GraphDB
             return Edges.Where(e => e.Properties.ContainsKey(propertyName) && e.Properties[propertyName].Equals(value)).ToList();
         }
 
+
+        public List<Node> HandleFindNeighbors(string cypher)
+        {
+            var pattern = new Regex(@"FIND NEIGHBORS \(id:\s*'([^']*)'(?:,\s*label:\s*'([^']*)')?\)", RegexOptions.IgnoreCase);
+            var match = pattern.Match(cypher);
+
+            if (!match.Success)
+            {
+                return new List<Node>(); // Return an empty list if the syntax is invalid
+            }
+
+            string nodeId = match.Groups[1].Value;
+            string label = match.Groups[2].Success ? match.Groups[2].Value : null;
+
+            return FindNeighbors(nodeId, label);
+        }
+
         // Find all neighbors of a specific node
-        public List<Node> FindNeighbors(string nodeId)
+        public List<Node> FindNeighbors(string nodeId, string label = null)
         {
             var neighbors = new List<Node>();
 
             // Add nodes that are at the end of an outgoing edge from the given node
-            var outgoingNeighbors = Edges.Where(e => e.From.Id == nodeId).Select(e => e.To).ToList();
+            var outgoingNeighbors = Edges
+                .Where(e => e.From.Id == nodeId)
+                .Select(e => e.To)
+                .Where(n => label == null || n.Label == label)
+                .ToList();
+
             neighbors.AddRange(outgoingNeighbors);
 
             // Add nodes that are at the start of an incoming edge to the given node
-            var incomingNeighbors = Edges.Where(e => e.To.Id == nodeId).Select(e => e.From).ToList();
+            var incomingNeighbors = Edges
+                .Where(e => e.To.Id == nodeId)
+                .Select(e => e.From)
+                .Where(n => label == null || n.Label == label)
+                .ToList();
+
             neighbors.AddRange(incomingNeighbors);
 
             return neighbors.Distinct().ToList(); // Remove duplicates and return
         }
+
 
         private string HandleCreateNode(string cypher)
         {
