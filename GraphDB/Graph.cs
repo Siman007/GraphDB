@@ -13,6 +13,8 @@ using CsvHelper.Configuration;
 using CsvHelper.TypeConversion;
 using System.Globalization;
 using System.Text;
+using Microsoft.AspNetCore.Mvc;
+using GraphDB;
 
 namespace GraphDB
     {
@@ -35,7 +37,7 @@ namespace GraphDB
             }
 
 
-        public string ExecuteCypherCommand(string cypher)
+        public ApiResponse ExecuteCypherCommand(string cypher)
         {
             CypherCommandType commandType = cypher.ToCommandType();
             switch (commandType)
@@ -109,49 +111,67 @@ namespace GraphDB
             return isDatabaseLoaded;
         }
 
-        
 
-        private string HandleDisplayHelp(string cypher)
+
+        private ApiResponse HandleDisplayHelp(string cypher)
         {
             // Splitting the input to separate "HELP" from the actual command it's asking help for
             var parts = cypher.Trim().Split(new char[] { ' ' }, 2);
             var command = parts[0].ToUpper();
 
+            // Initialize the response object
+            var response = new ApiResponse();
+
             // If the command starts with HELP, provide detailed help for the specified command
             if (command == "HELP")
             {
                 var specificCommand = parts.Length > 1 ? parts[1] : "";
-                return GraphHelp.GetHelp(specificCommand);
+                response.Message = GraphHelp.GetHelp(specificCommand);
+                response.Success = true;
             }
-            return GraphHelp.GetHelp();
+            else
+            {
+                response.Message = GraphHelp.GetHelp();
+                response.Success = true;
+            }
+
+            return response;
         }
 
-        private string HandleCreateCypher(string cypher)
+
+        public ApiResponse HandleFindNeighbors(string cypher)
         {
-            // First, try to match node creation or merge syntax
-            var nodePattern = new Regex(@"(CREATE|MERGE) \((\w+):(\w+) \{(.+)\}\)", RegexOptions.IgnoreCase);
-            var nodeMatch = nodePattern.Match(cypher);
-            if (nodeMatch.Success)
+            var pattern = new Regex(@"FIND NEIGHBORS \(id:\s*'([^']*)'(?:,\s*label:\s*'([^']*)')?\)", RegexOptions.IgnoreCase);
+            var match = pattern.Match(cypher);
+
+            var response = new ApiResponse();
+
+            if (!match.Success)
             {
-                return HandleNodeCreationOrMerge(nodeMatch);
+                response.Success = false;
+                response.Message = "Invalid FIND NEIGHBORS syntax.";
+                return response;
             }
 
-            // Next, try to match relationship creation syntax
-            var relationshipPattern = new Regex(@"CREATE \((\w+)\)-\[:(\w+)\]->\((\w+)\) \{(.*)\}", RegexOptions.IgnoreCase);
-            var relationshipMatch = relationshipPattern.Match(cypher);
-            if (relationshipMatch.Success)
-            {
-                return HandleRelationshipCreation(relationshipMatch);
-            }
+            string nodeId = match.Groups[1].Value;
+            string label = match.Groups[2].Success ? match.Groups[2].Value : null;
 
-            return "Cypher command not recognized or supported.";
+            var neighbors = FindNeighbors(nodeId, label);
+
+            response.Success = true;
+            response.Message = $"Found {neighbors.Count} neighbors.";
+            // Serialize the neighbors list to a JSON string
+            response.DataJson = JsonConvert.SerializeObject(neighbors, Formatting.Indented);
+
+            return response;
         }
 
-        private string HandleNodeCreationOrMerge(Match nodeMatch)
+        private ApiResponse HandleNodeCreationOrMerge(Match nodeMatch)
         {
+            ApiResponse response = new ApiResponse();
             string operation = nodeMatch.Groups[1].Value.ToUpper();
-            string nodeId = nodeMatch.Groups[2].Value; // nodeName is actually nodeId in this context
-            string label = nodeMatch.Groups[3].Value; // Example uses label but might be ignored depending on your implementation
+            string nodeId = nodeMatch.Groups[2].Value;
+            string label = nodeMatch.Groups[3].Value;
             var properties = ParseProperties(nodeMatch.Groups[4].Value);
             var objectProperties = properties.ToDictionary(kvp => kvp.Key, kvp => (object)kvp.Value);
 
@@ -163,7 +183,8 @@ namespace GraphDB
                     node = new Node { Id = nodeId, Properties = objectProperties };
                     Nodes.Add(node);
                     SaveToFile();
-                    return $"Merged (created) new node with id {nodeId}.";
+                    response.Success = true;
+                    response.Message = $"Merged (created) new node with id {nodeId}.";
                 }
                 else
                 {
@@ -172,84 +193,65 @@ namespace GraphDB
                         node.Properties[prop.Key] = prop.Value;
                     }
                     SaveToFile();
-                    return $"Merged (updated) node {nodeId} with new properties.";
+                    response.Success = true;
+                    response.Message = $"Merged (updated) node {nodeId} with new properties.";
                 }
             }
             else // CREATE
             {
                 if (node != null)
                 {
-                    return $"Node with id {nodeId} already exists. Cannot create duplicate.";
+                    response.Success = false;
+                    response.Message = $"Node with id {nodeId} already exists. Cannot create duplicate.";
                 }
-                node = new Node { Id = nodeId, Properties = objectProperties };
-                Nodes.Add(node);
-                SaveToFile();
-                return $"Created new node with id {nodeId}.";
-            }
-        }
-
-        private string HandleRelationshipCreation(Match relationshipMatch)
-        {
-            string fromNodeId = relationshipMatch.Groups[1].Value;
-            string relationshipType = relationshipMatch.Groups[2].Value;
-            string toNodeId = relationshipMatch.Groups[3].Value;
-            var properties = ParseProperties(relationshipMatch.Groups[4].Value);
-            var objectProperties = properties.ToDictionary(kvp => kvp.Key, kvp => (object)kvp.Value);
-
-            var fromNode = Nodes.FirstOrDefault(n => n.Id == fromNodeId);
-            var toNode = Nodes.FirstOrDefault(n => n.Id == toNodeId);
-
-            if (fromNode == null || toNode == null)
-            {
-                return "One or both specified nodes do not exist.";
+                else
+                {
+                    node = new Node { Id = nodeId, Properties = objectProperties };
+                    Nodes.Add(node);
+                    SaveToFile();
+                    response.Success = true;
+                    response.Message = $"Created new node with id {nodeId}.";
+                }
             }
 
-            var edge = new Edge
-            {
-                FromId = fromNodeId,
-                ToId = toNodeId,
-                RelationshipType = relationshipType,
-                Properties = objectProperties
-            };
-            Edges.Add(edge);
-            SaveToFile();
-            return $"Created relationship of type {relationshipType} from {fromNodeId} to {toNodeId}.";
+            return response;
         }
-
-        private string HandleCreateRelationship(string cypher)
+        private ApiResponse HandleCreateRelationship(string cypher)
         {
+            var response = new ApiResponse();
+
             var pattern = new Regex(@"CREATE \((\w+)\)-\[:(\w+)\]->\((\w+)\) \{(.*)\}", RegexOptions.IgnoreCase);
             var match = pattern.Match(cypher);
-            if (!match.Success) return "Invalid CREATE syntax for relationship.";
+            if (!match.Success)
+            {
+                response.Success = false;
+                response.Message = "Invalid CREATE syntax for relationship.";
+                return response;
+            }
 
             string fromNodeId = match.Groups[1].Value;
             string relationshipType = match.Groups[2].Value;
             string toNodeId = match.Groups[3].Value;
             var propertiesString = match.Groups[4].Value;
 
-            // Check if both nodes exist
             var fromNode = Nodes.FirstOrDefault(n => n.Id == fromNodeId);
             var toNode = Nodes.FirstOrDefault(n => n.Id == toNodeId);
             if (fromNode == null || toNode == null)
             {
-                return "One or both specified nodes do not exist.";
+                response.Success = false;
+                response.Message = "One or both specified nodes do not exist.";
+                return response;
             }
 
-            // Parse properties, if any
-            var properties = new Dictionary<string, object>();
-            if (!string.IsNullOrWhiteSpace(propertiesString))
-            {
-                properties = ParseProperties(propertiesString);
-            }
-
-            // Check if a similar relationship already exists to avoid duplicates, based on your application's needs
+            var properties = ParseProperties(propertiesString);
             var existingEdge = Edges.FirstOrDefault(e => e.FromId == fromNodeId && e.ToId == toNodeId && e.RelationshipType == relationshipType);
             if (existingEdge != null)
             {
-                return $"A relationship of type {relationshipType} from {fromNodeId} to {toNodeId} already exists.";
+                response.Success = false;
+                response.Message = $"A relationship of type {relationshipType} from {fromNodeId} to {toNodeId} already exists.";
+                return response;
             }
 
-            // Create and add the new relationship
             var edge = new Edge
             {
                 FromId = fromNodeId,
@@ -258,10 +260,19 @@ namespace GraphDB
                 Properties = properties
             };
             Edges.Add(edge);
-            SaveToFile(); // Persist changes if applicable
+            SaveToFile();
 
-            return $"Created relationship of type {relationshipType} from {fromNodeId} to {toNodeId}.";
+            response.Success = true;
+            response.Message = $"Created relationship of type {relationshipType} from {fromNodeId} to {toNodeId}.";
+            // Optionally, if you want to return the created edge as JSON:
+            response.DataJson = JsonConvert.SerializeObject(edge);
+
+            return response;
         }
+
+
+
+        
 
 
 
@@ -296,8 +307,9 @@ namespace GraphDB
         }
 
 
-        private string HandleDeleteNode(string cypher)
+        private ApiResponse HandleDeleteNode(string cypher)
         {
+            var response = new ApiResponse();
             var deleteByIdPattern = new Regex(@"MATCH \(n\) WHERE n\.id = '(\w+)' DELETE n", RegexOptions.IgnoreCase);
             var deleteByLabelPattern = new Regex(@"MATCH \(n:(\w+)\) DELETE n", RegexOptions.IgnoreCase);
 
@@ -311,9 +323,13 @@ namespace GraphDB
                 {
                     Nodes.Remove(nodeToDelete);
                     SaveToFile();
-                    return $"Node with ID {nodeId} deleted successfully.";
+                    response.Success = true;
+                    response.Message = $"Node with ID {nodeId} deleted successfully.";
+                    return response;
                 }
-                return $"No node found with ID {nodeId}.";
+                response.Success = false;
+                response.Message = $"No node found with ID {nodeId}.";
+                return response;
             }
 
             // Attempt to match DELETE by Label pattern
@@ -329,25 +345,38 @@ namespace GraphDB
                         Nodes.Remove(node);
                     }
                     SaveToFile();
-                    return $"Nodes with label {nodeLabel} deleted successfully.";
+                    response.Success = true;
+                    response.Message = $"Nodes with label {nodeLabel} deleted successfully.";
+                    return response;
                 }
-                return $"No nodes found with label {nodeLabel}.";
+                response.Success = false;
+                response.Message = $"No nodes found with label {nodeLabel}.";
+                return response;
             }
 
-            return "Invalid DELETE syntax.";
+            response.Success = false;
+            response.Message = "Invalid DELETE syntax.";
+            return response;
         }
 
 
-        public string HandleDetachDelete(string cypher)
+
+        public ApiResponse HandleDetachDelete(string cypher)
         {
+            var response = new ApiResponse();
             var pattern = new Regex(@"DETACH DELETE (\w+)(?:\s*:\s*(\w+))?", RegexOptions.IgnoreCase);
             var match = pattern.Match(cypher);
-            if (!match.Success) return "Invalid DETACH DELETE syntax.";
+            if (!match.Success)
+            {
+                response.Success = false;
+                response.Message = "Invalid DETACH DELETE syntax.";
+                return response;
+            }
 
             string nodeIdOrLabel = match.Groups[1].Value;
             string label = match.Groups[2].Success ? match.Groups[2].Value : null;
 
-            Predicate<Node> deletionCriteria; // Change to Predicate<Node>
+            Predicate<Node> deletionCriteria;
             if (string.IsNullOrEmpty(label))
             {
                 deletionCriteria = n => n.Id == nodeIdOrLabel;
@@ -360,30 +389,40 @@ namespace GraphDB
             // Use the predicate directly without conversion
             Edges.RemoveAll(e => deletionCriteria(Nodes.FirstOrDefault(n => n.Id == e.FromId)) || deletionCriteria(Nodes.FirstOrDefault(n => n.Id == e.ToId)));
 
-            var removed = Nodes.RemoveAll(deletionCriteria) > 0; // Use directly
+            var removed = Nodes.RemoveAll(deletionCriteria) > 0;
 
             if (removed)
             {
                 SaveToFile(); // Save changes to the graph
-                return label == null ?
+                response.Success = true;
+                response.Message = label == null ?
                     $"Node {nodeIdOrLabel} and all its relationships have been deleted." :
                     $"Nodes with label {label} and all their relationships have been deleted.";
             }
             else
             {
-                return label == null ?
+                response.Success = false;
+                response.Message = label == null ?
                     $"Node {nodeIdOrLabel} does not exist." :
                     $"No nodes with label {label} exist.";
             }
+            return response;
         }
 
 
 
-        private string HandleDeleteRelationship(string cypher)
+
+        public ApiResponse HandleDeleteRelationship(string cypher)
         {
+            var response = new ApiResponse();
             var pattern = new Regex(@"DELETE RELATIONSHIP FROM \((\w+)\) TO \((\w+)\) TYPE (\w+)", RegexOptions.IgnoreCase);
             var match = pattern.Match(cypher);
-            if (!match.Success) return "Invalid DELETE RELATIONSHIP syntax.";
+            if (!match.Success)
+            {
+                response.Success = false;
+                response.Message = "Invalid DELETE RELATIONSHIP syntax.";
+                return response;
+            }
 
             string fromNodeId = match.Groups[1].Value;
             string toNodeId = match.Groups[2].Value;
@@ -394,20 +433,28 @@ namespace GraphDB
             if (removed)
             {
                 SaveToFile(); // Assuming you have a method to save changes to the graph
-                return $"Relationship {relationshipType} from {fromNodeId} to {toNodeId} has been deleted.";
+                response.Success = true;
+                response.Message = $"Relationship {relationshipType} from {fromNodeId} to {toNodeId} has been deleted.";
             }
             else
             {
-                return $"Relationship {relationshipType} from {fromNodeId} to {toNodeId} does not exist.";
+                response.Success = false;
+                response.Message = $"Relationship {relationshipType} from {fromNodeId} to {toNodeId} does not exist.";
             }
+            return response;
         }
-        private string HandleMatchRelationship(string cypher)
+
+        public ApiResponse HandleMatchRelationship(string cypher)
         {
-            // Extending the command format to include optional weight conditions:
-            // MATCH (a)-[r:RELATIONSHIP_TYPE {weight: '>value'}]->(b) RETURN r
+            var response = new ApiResponse();
             var pattern = new Regex(@"MATCH \((\w+)\)-\[r:(\w+)\s*\{(?:weight: '([><=]?)(\d+)')?\}\]->\((\w+)\) WHERE r\.(\w+) = '([^']+)' RETURN r", RegexOptions.IgnoreCase);
             var match = pattern.Match(cypher);
-            if (!match.Success) return "Invalid MATCH syntax for relationship.";
+            if (!match.Success)
+            {
+                response.Success = false;
+                response.Message = "Invalid MATCH syntax for relationship.";
+                return response;
+            }
 
             // Extracting values from the command
             string startNodeAlias = match.Groups[1].Value;
@@ -425,12 +472,18 @@ namespace GraphDB
                 CheckWeightCondition(edge.Weight, weightComparison, weightValue)
             ).ToList();
 
-            if (!filteredEdges.Any())
+            if (filteredEdges.Any())
             {
-                return "No relationships found matching criteria.";
+                response.Success = true;
+                response.Message = "Relationships found matching criteria.";
+                response.DataJson = JsonConvert.SerializeObject(filteredEdges); // Assuming you want to return the filtered edges as JSON
             }
-
-            return FormatRelationships(filteredEdges);
+            else
+            {
+                response.Success = false;
+                response.Message = "No relationships found matching criteria.";
+            }
+            return response;
         }
 
         private bool CheckWeightCondition(double edgeWeight, string comparison, string value)
@@ -451,6 +504,12 @@ namespace GraphDB
             }
         }
 
+        //private string FormatRelationships(List<Edge> edges)
+        //{
+        //    return JsonConvert.SerializeObject(edges); // Convert the list of edges directly to JSON
+        //}
+
+
         private string FormatRelationships(List<Edge> edges)
         {
             var stringBuilder = new StringBuilder();
@@ -466,22 +525,32 @@ namespace GraphDB
         }
 
 
-      
 
 
-        private string HandleSetRelationshipProperty(string cypher)
+
+        public ApiResponse HandleSetRelationshipProperty(string cypher)
         {
-            // Example Cypher: SET RELATIONSHIP (fromId)-(toId) {property: 'value'}
+            var response = new ApiResponse();
             var pattern = new Regex(@"SET RELATIONSHIP \((\w+)\)-\((\w+)\) \{(.+)\}", RegexOptions.IgnoreCase);
             var match = pattern.Match(cypher);
-            if (!match.Success) return "Invalid syntax for SET RELATIONSHIP.";
+            if (!match.Success)
+            {
+                response.Success = false;
+                response.Message = "Invalid syntax for SET RELATIONSHIP.";
+                return response;
+            }
 
             string fromId = match.Groups[1].Value;
             string toId = match.Groups[2].Value;
             var properties = ParseProperties(match.Groups[3].Value);
 
             var edge = Edges.FirstOrDefault(e => e.FromId == fromId && e.ToId == toId);
-            if (edge == null) return "Relationship does not exist.";
+            if (edge == null)
+            {
+                response.Success = false;
+                response.Message = "Relationship does not exist.";
+                return response;
+            }
 
             foreach (var prop in properties)
             {
@@ -489,7 +558,10 @@ namespace GraphDB
             }
 
             SaveToFile();
-            return $"Updated properties of relationship from {fromId} to {toId}.";
+            response.Success = true;
+            response.Message = $"Updated properties of relationship from {fromId} to {toId}.";
+            response.DataJson = JsonConvert.SerializeObject(edge); // Serialize the updated edge to JSON string
+            return response;
         }
 
 
@@ -601,25 +673,43 @@ namespace GraphDB
         }
 
 
-        private string HandleCreateNode(string cypher)
+        private ApiResponse<NodeResponse> HandleCreateNode(string cypher)
         {
-            var pattern = new Regex(@"CREATE \((\w+):(\w+) \{(.+)\}\)", RegexOptions.IgnoreCase);
-            var match = pattern.Match(cypher);
-            if (!match.Success) return "Invalid CREATE syntax for node.";
-
-            string nodeId = match.Groups[1].Value;
-            string label = match.Groups[2].Value; // This example uses label, which you may or may not need.
-            var properties = ParseProperties(match.Groups[3].Value);
-
-            if (Nodes.Any(n => n.Id == nodeId))
+            try
             {
-                return $"Node with id {nodeId} already exists.";
+
+                var pattern = new Regex(@"CREATE \((\w+):(\w+) \{(.+)\}\)", RegexOptions.IgnoreCase);
+                var match = pattern.Match(cypher);
+                if (!match.Success) return  ApiResponse<NodeResponse>.ErrorResponse($"Invalid CREATE syntax for node.");
+
+                string nodeId = match.Groups[1].Value;
+                string label = match.Groups[2].Value; // This example uses label, which you may or may not need.
+                var properties = ParseProperties(match.Groups[3].Value);
+
+                if (Nodes.Any(n => n.Id == nodeId))
+                {
+                    return ApiResponse<NodeResponse>.ErrorResponse($"Node with id {nodeId} already exists.");
+                }
+
+                var newNode = new Node { Id = nodeId, Properties = properties };
+                Nodes.Add(newNode);
+                SaveToFile();
+
+                // Return a NodeResponse instead of a string
+                var nodeResponse = new NodeResponse
+                {
+                    Id = newNode.Id,
+                    Label = newNode.Label,
+                    Properties = newNode.Properties
+                };
+                    return ApiResponse<NodeResponse>.SuccessResponse(nodeResponse, "Node created successfully.");
+                    }
+            catch (Exception ex)
+            {
+                // Return error response
+                return ApiResponse<NodeResponse>.ErrorResponse($"Error creating node: {ex.Message}");
             }
 
-            var node = new Node { Id = nodeId, Properties = properties };
-            Nodes.Add(node);
-            SaveToFile();
-            return $"Node {nodeId} created successfully.";
         }
 
         private string HandleMergeNode(string cypher)
