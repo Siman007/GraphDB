@@ -23,35 +23,26 @@ namespace GraphDB
         [HttpPost("edge")]
         public IActionResult AddEdge([FromBody] dynamic edgeData)
         {
-            var fromNode = graph.Nodes.FirstOrDefault(n => n.Id == edgeData.FromId.ToString());
-            var toNode = graph.Nodes.FirstOrDefault(n => n.Id == edgeData.ToId.ToString());
+            var fromId = (string)edgeData.FromId;
+            var toId = (string)edgeData.ToId;
+            var weight = (double)(edgeData.Weight ?? 1.0); // Default weight to 1.0 if not provided
+            var relationshipType = (string)edgeData.Relationship;
 
-            if (fromNode == null || toNode == null)
-            {
-                return BadRequest("One or both nodes not found.");
-            }
-
-            // Assuming edgeData.Properties is a collection of key-value pairs
-            Dictionary<string, object> properties = new Dictionary<string, object>();
+            var properties = new Dictionary<string, object>();
             if (edgeData.Properties != null)
             {
                 foreach (var prop in edgeData.Properties)
                 {
-                    properties.Add(prop.Name, (object)prop.Value.ToString());
+                    properties.Add((string)prop.Name, (object)prop.Value.Value); // Assuming prop.Value is dynamic
                 }
             }
 
-            var newEdge = new Edge
-            {
-                From = fromNode,
-                To = toNode,
-                Relationship = edgeData.Relationship,
-                Properties = properties
-            };
+            graph.AddEdge(fromId, toId, weight, relationshipType, properties);
 
-            graph.AddEdge(newEdge);
-            return Ok($"Edge from {newEdge.From.Id} to {newEdge.To.Id} added.");
+            return Ok($"Edge from {fromId} to {toId} with relationship {relationshipType} added.");
         }
+
+
 
 
         [HttpGet("command")]

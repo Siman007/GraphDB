@@ -8,11 +8,11 @@
     using Newtonsoft.Json;
     using System.IO;
 
-    using System.Xml;
     using CsvHelper;
     using CsvHelper.Configuration;
     using CsvHelper.TypeConversion;
 using System.Globalization;
+using System.Text;
 
 namespace GraphDB
     {
@@ -34,158 +34,63 @@ namespace GraphDB
                 _graphPath = Path.Combine(DefaultFilePath, $"{graphName}.json");
             }
 
-            public void AddNode(Node node)
+
+        public string ExecuteCypherCommand(string cypher)
+        {
+            CypherCommandType commandType = cypher.ToCommandType();
+            switch (commandType)
             {
-                if (!Nodes.Exists(n => n.Id == node.Id))
-                {
-                    Nodes.Add(node);
-                    SaveToFile();
-                }
-            }
-
-            public void AddEdge(Edge edge)
-            {
-                if (!Edges.Exists(e => e.FromId == edge.FromId && e.ToId == edge.ToId))
-                {
-                    // Ensure referenced nodes exist
-                    edge.From = Nodes.FirstOrDefault(n => n.Id == edge.FromId);
-                    edge.To = Nodes.FirstOrDefault(n => n.Id == edge.ToId);
-                    if (edge.From != null && edge.To != null)
-                    {
-                        Edges.Add(edge);
-                        SaveToFile();
-                    }
-                }
-            }
-
-            public void DeleteNode(string nodeId)
-            {
-                Nodes.RemoveAll(n => n.Id == nodeId);
-                Edges.RemoveAll(e => e.FromId == nodeId || e.ToId == nodeId);
-                SaveToFile();
-            }
-
-            public void DeleteEdge(string fromNodeId, string toNodeId)
-            {
-                Edges.RemoveAll(e => e.FromId == fromNodeId && e.ToId == toNodeId);
-                SaveToFile();
-            }
-
-            public List<Node> QueryNodesByProperty(string propertyName, object value)
-            {
-                return Nodes.Where(n => n.Properties.ContainsKey(propertyName) && n.Properties[propertyName].Equals(value)).ToList();
-            }
-
-            public List<Edge> QueryEdgesByProperty(string propertyName, object value)
-            {
-                return Edges.Where(e => e.Properties.ContainsKey(propertyName) && e.Properties[propertyName].Equals(value)).ToList();
-            }
-
-            // Find all neighbors of a specific node
-            public List<Node> FindNeighbors(string nodeId)
-            {
-                var neighbors = new List<Node>();
-
-                // Add nodes that are at the end of an outgoing edge from the given node
-                var outgoingNeighbors = Edges.Where(e => e.From.Id == nodeId).Select(e => e.To).ToList();
-                neighbors.AddRange(outgoingNeighbors);
-
-                // Add nodes that are at the start of an incoming edge to the given node
-                var incomingNeighbors = Edges.Where(e => e.To.Id == nodeId).Select(e => e.From).ToList();
-                neighbors.AddRange(incomingNeighbors);
-
-                return neighbors.Distinct().ToList(); // Remove duplicates and return
-            }
-
-
-
-
-
-            // Creating Nodes: CREATE(n:Label { id: '1', property: 'value'})
-            // Creating Relationships: CREATE(n)-[:RELATES_TO {property: 'value'}]->(m)
-            // Querying Nodes: MATCH(n:Label) WHERE n.property = 'value' RETURN n
-            public string ExecuteCypherCommand(string cypher)
-            {
-                try
-                {
-                if ((cypher.Equals("help", StringComparison.OrdinalIgnoreCase) ||
-                    cypher.Equals("h", StringComparison.OrdinalIgnoreCase) ||
-                    cypher.Equals("?", StringComparison.OrdinalIgnoreCase)) && !isDatabaseLoaded)
-                    {
-                        return CommandUtility.GetHelpResponse();
-                    }
-                else if (!isDatabaseLoaded)
-                    {
-                        return "No database is loaded. Please load or create a database first. Use 'help' for more information.";
-                    } else if (cypher.StartsWith("CREATE", StringComparison.OrdinalIgnoreCase))
-                    {
-                        return HandleCreateCypher(cypher);
-                    }
-                    else if (cypher.StartsWith("MATCH", StringComparison.OrdinalIgnoreCase))
-                    {
-                        return HandleMatchCypher(cypher);
-                    }
-                    else if (cypher.StartsWith("DELETE", StringComparison.OrdinalIgnoreCase))
-                    {
-                        return HandleDeleteCypher(cypher);
-                    }
-                    else if (cypher.StartsWith("SET", StringComparison.OrdinalIgnoreCase))
-                    {
-                        return HandleSetCypher(cypher);
-                    }
-                    else if (cypher.Contains("COUNT", StringComparison.OrdinalIgnoreCase) || cypher.Contains("SUM", StringComparison.OrdinalIgnoreCase) || cypher.Contains("AVG", StringComparison.OrdinalIgnoreCase)) // Expand as necessary for SUM, AVG, etc.
-                    {
-                        return HandleAggregation(cypher);
-                    }
-                    else if (cypher.StartsWith("DETACH DELETE", StringComparison.OrdinalIgnoreCase))
-                    {
-                        return HandleDetachDelete(cypher);
-                    }
-                else if (cypher.StartsWith("FIND RELATIONSHIPS", StringComparison.OrdinalIgnoreCase))
-                    {
-
-                    // Return relationships found by FindRelationships
-                    return HandleFindRelationshipsCypher(cypher);
-                }
-                    else if (cypher.StartsWith("MATCH PATTERN", StringComparison.OrdinalIgnoreCase))
-                    {
-
-                        // Return nodes and edges that match the pattern using MatchPattern
-                        return HandleMatchPatternCypher(cypher);
-                    }
-                else if (cypher.StartsWith("IMPORT CSV", StringComparison.OrdinalIgnoreCase))
-                {
-                    return HandleImportCsvCypher(cypher);
-                }
-                if (cypher.StartsWith("EXPORT CSV", StringComparison.OrdinalIgnoreCase))
-                {
-                    return HandleExportCsvCypher(cypher);
-                }
-                else if ( cypher.Contains("IF CONDITION", StringComparison.OrdinalIgnoreCase))
-                {
+                case CypherCommandType.CreateNode:
+                    return HandleCreateNode(cypher);
+                case CypherCommandType.MergeNode:
+                    return HandleMergeNode(cypher);
+                case CypherCommandType.CreateRelationship:
+                    return HandleCreateRelationship(cypher);
+                case CypherCommandType.MatchNode:
+                    return HandleMatchNode(cypher);
+                case CypherCommandType.MatchRelationship:
+                    return HandleMatchRelationship(cypher);
+                case CypherCommandType.DeleteNode:
+                    return HandleDeleteNode(cypher);
+                case CypherCommandType.DetachDeleteNode:
+                    return HandleDetachDelete(cypher);
+                case CypherCommandType.DeleteRelationship:
+                    return HandleDeleteRelationship(cypher);
+                case CypherCommandType.SetNodeProperty:
+                    return HandleSetNodeProperty(cypher);
+                case CypherCommandType.SetRelationshipProperty:
+                    return HandleSetRelationshipProperty(cypher);
+                case CypherCommandType.ImportCsv:
+                    return HandleImportCsv(cypher);
+                case CypherCommandType.ImportJSON:
+                    return HandleImportJSON(cypher);
+                case CypherCommandType.ExportCsvNodes:
+                    return HandleExportCsvNodes(cypher);
+                case CypherCommandType.ExportCsvEdges:
+                    return HandleExportCsvEdges(cypher);
+                case CypherCommandType.Conditional:
                     return HandleConditional(cypher);
-                }
-                else if (cypher.StartsWith("CASE", StringComparison.OrdinalIgnoreCase))
-                {
-                    return HandleCaseCommand(cypher);
-                }
-               else if (cypher.Equals("help", StringComparison.OrdinalIgnoreCase) ||
-                        cypher.Equals("h", StringComparison.OrdinalIgnoreCase) ||
-                        cypher.Equals("?", StringComparison.OrdinalIgnoreCase))
-                {
-                    return DisplayHelp();
-                }
-                
-                else
-                    {
-                        return "Unsupported Cypher command.";
-                    }
-                }
-                catch (Exception ex)
-                {
-                    return $"Error executing Cypher command: {ex.Message}";
-                }
+                case CypherCommandType.Case:
+                    return HandleCase(cypher);
+                case CypherCommandType.Help:
+                    return HandleDisplayHelp(cypher);
+                case CypherCommandType.CountNodes:
+                    return HandleCountNodes();
+                case CypherCommandType.CountEdges:
+                    return HandleCountEdges();
+                case CypherCommandType.AggregateSum:
+                    return HandleAggregateSum(cypher);
+                case CypherCommandType.AggregateAvg:
+                    return HandleAggregateAvg(cypher);
+                case CypherCommandType.FindRelationships:
+                    return HandleFindRelationships(cypher);
+                case CypherCommandType.MatchPattern:
+                    return HandleMatchPattern(cypher);
+                default:
+                    return "Unsupported Cypher command.";
             }
+        }
+
 
         public static string GetDatabaseName()
         {
@@ -201,207 +106,548 @@ namespace GraphDB
             return isDatabaseLoaded;
         }
 
+        
+
+        private string HandleDisplayHelp(string cypher)
+        {
+            // Splitting the input to separate "HELP" from the actual command it's asking help for
+            var parts = cypher.Trim().Split(new char[] { ' ' }, 2);
+            var command = parts[0].ToUpper();
+
+            // If the command starts with HELP, provide detailed help for the specified command
+            if (command == "HELP")
+            {
+                var specificCommand = parts.Length > 1 ? parts[1] : "";
+                return GraphHelp.GetHelp(specificCommand);
+            }
+            return GraphHelp.GetHelp();
+        }
+
         private string HandleCreateCypher(string cypher)
+        {
+            // First, try to match node creation or merge syntax
+            var nodePattern = new Regex(@"(CREATE|MERGE) \((\w+):(\w+) \{(.+)\}\)", RegexOptions.IgnoreCase);
+            var nodeMatch = nodePattern.Match(cypher);
+            if (nodeMatch.Success)
             {
-                var nodePattern = new Regex(@"(CREATE|MERGE) \((\w+):(\w+) \{(.+)\}\)", RegexOptions.IgnoreCase);
-                var nodeMatch = nodePattern.Match(cypher);
-                if (nodeMatch.Success)
+                return HandleNodeCreationOrMerge(nodeMatch);
+            }
+
+            // Next, try to match relationship creation syntax
+            var relationshipPattern = new Regex(@"CREATE \((\w+)\)-\[:(\w+)\]->\((\w+)\) \{(.*)\}", RegexOptions.IgnoreCase);
+            var relationshipMatch = relationshipPattern.Match(cypher);
+            if (relationshipMatch.Success)
+            {
+                return HandleRelationshipCreation(relationshipMatch);
+            }
+
+            return "Cypher command not recognized or supported.";
+        }
+
+        private string HandleNodeCreationOrMerge(Match nodeMatch)
+        {
+            string operation = nodeMatch.Groups[1].Value.ToUpper();
+            string nodeId = nodeMatch.Groups[2].Value; // nodeName is actually nodeId in this context
+            string label = nodeMatch.Groups[3].Value; // Example uses label but might be ignored depending on your implementation
+            var properties = ParseProperties(nodeMatch.Groups[4].Value);
+            var objectProperties = properties.ToDictionary(kvp => kvp.Key, kvp => (object)kvp.Value);
+
+            var node = Nodes.FirstOrDefault(n => n.Id == nodeId);
+            if (operation == "MERGE")
+            {
+                if (node == null)
                 {
-                    string operation = nodeMatch.Groups[1].Value.ToUpper();
-                    string nodeName = nodeMatch.Groups[2].Value;
-                    string label = nodeMatch.Groups[3].Value;
-                    string propertiesString = nodeMatch.Groups[4].Value;
-
-                    var properties = ParseProperties(propertiesString);
-                    var objectProperties = properties.ToDictionary(kvp => kvp.Key, kvp => (object)kvp.Value);
-
-                    if (operation == "MERGE")
-                    {
-                        // Find an existing node with the same ID or create a new one
-                        var node = Nodes.FirstOrDefault(n => n.Id == properties["id"]);
-                        if (node == null)
-                        {
-                            node = new Node { Id = properties["id"], Properties = objectProperties };
-                            AddNode(node);
-                            return $"Merged (created) new node with id {node.Id}.";
-                        }
-                        else
-                        {
-                            // Update the existing node's properties
-                            foreach (var prop in objectProperties)
-                            {
-                                node.Properties[prop.Key] = prop.Value;
-                            }
-                            return $"Merged (updated) node {node.Id} with new properties.";
-                        }
-                    }
-                    else if (operation == "CREATE")
-                    {
-                        // Check if a node with the same ID already exists to prevent duplicates
-                        if (Nodes.Any(n => n.Id == properties["id"]))
-                        {
-                            return $"Node with id {properties["id"]} already exists. Cannot create duplicate.";
-                        }
-                        var node = new Node { Id = properties["id"], Properties = objectProperties };
-                        AddNode(node);
-                        return $"Created new node with id {node.Id}.";
-                    }
+                    node = new Node { Id = nodeId, Properties = objectProperties };
+                    Nodes.Add(node);
+                    SaveToFile();
+                    return $"Merged (created) new node with id {nodeId}.";
                 }
+                else
+                {
+                    foreach (var prop in objectProperties)
+                    {
+                        node.Properties[prop.Key] = prop.Value;
+                    }
+                    SaveToFile();
+                    return $"Merged (updated) node {nodeId} with new properties.";
+                }
+            }
+            else // CREATE
+            {
+                if (node != null)
+                {
+                    return $"Node with id {nodeId} already exists. Cannot create duplicate.";
+                }
+                node = new Node { Id = nodeId, Properties = objectProperties };
+                Nodes.Add(node);
+                SaveToFile();
+                return $"Created new node with id {nodeId}.";
+            }
+        }
 
-                // Continue with the relationship handling as before, adjusted for CREATE and MERGE distinction if needed
+        private string HandleRelationshipCreation(Match relationshipMatch)
+        {
+            string fromNodeId = relationshipMatch.Groups[1].Value;
+            string relationshipType = relationshipMatch.Groups[2].Value;
+            string toNodeId = relationshipMatch.Groups[3].Value;
+            var properties = ParseProperties(relationshipMatch.Groups[4].Value);
+            var objectProperties = properties.ToDictionary(kvp => kvp.Key, kvp => (object)kvp.Value);
 
-                return "Cypher command not recognized or supported.";
+            var fromNode = Nodes.FirstOrDefault(n => n.Id == fromNodeId);
+            var toNode = Nodes.FirstOrDefault(n => n.Id == toNodeId);
+
+            if (fromNode == null || toNode == null)
+            {
+                return "One or both specified nodes do not exist.";
             }
 
-        private string DisplayHelp()
+            var edge = new Edge
+            {
+                FromId = fromNodeId,
+                ToId = toNodeId,
+                RelationshipType = relationshipType,
+                Properties = objectProperties
+            };
+            Edges.Add(edge);
+            SaveToFile();
+            return $"Created relationship of type {relationshipType} from {fromNodeId} to {toNodeId}.";
+        }
+
+        private string HandleCreateRelationship(string cypher)
         {
-            return @"
-GraphDB Command Syntax:
+            var pattern = new Regex(@"CREATE \((\w+)\)-\[:(\w+)\]->\((\w+)\) \{(.*)\}", RegexOptions.IgnoreCase);
+            var match = pattern.Match(cypher);
+            if (!match.Success) return "Invalid CREATE syntax for relationship.";
 
-CREATE (node) - Creates a node with specified properties.
-  Example: CREATE (n:Label { id: '1', property: 'value'})
+            string fromNodeId = match.Groups[1].Value;
+            string relationshipType = match.Groups[2].Value;
+            string toNodeId = match.Groups[3].Value;
+            var propertiesString = match.Groups[4].Value;
 
-MATCH (node) - Finds nodes that match specified criteria.
-  Example: MATCH (n:Label) WHERE n.property = 'value' RETURN n
+            // Check if both nodes exist
+            var fromNode = Nodes.FirstOrDefault(n => n.Id == fromNodeId);
+            var toNode = Nodes.FirstOrDefault(n => n.Id == toNodeId);
+            if (fromNode == null || toNode == null)
+            {
+                return "One or both specified nodes do not exist.";
+            }
 
-DELETE (node) - Deletes a node by its ID.
-  Example: DELETE (n {id: '1'})
+            // Parse properties, if any
+            var properties = new Dictionary<string, object>();
+            if (!string.IsNullOrWhiteSpace(propertiesString))
+            {
+                properties = ParseProperties(propertiesString);
+            }
 
-SET - Updates properties of a node or edge.
-  Example: SET NODE (n {id: '1'}) SET property = 'newValue'
-           SET EDGE (sourceId-targetId) SET property = 'newValue'
+            // Check if a similar relationship already exists to avoid duplicates, based on your application's needs
+            var existingEdge = Edges.FirstOrDefault(e => e.FromId == fromNodeId && e.ToId == toNodeId && e.RelationshipType == relationshipType);
+            if (existingEdge != null)
+            {
+                return $"A relationship of type {relationshipType} from {fromNodeId} to {toNodeId} already exists.";
+            }
 
-DETACH DELETE (node) - Deletes a node and its relationships.
-  Example: DETACH DELETE (n {id: '1'})
+            // Create and add the new relationship
+            var edge = new Edge
+            {
+                FromId = fromNodeId,
+                ToId = toNodeId,
+                RelationshipType = relationshipType,
+                Properties = properties
+            };
+            Edges.Add(edge);
+            SaveToFile(); // Persist changes if applicable
 
-FIND RELATIONSHIPS - Finds relationships between nodes.
-  Example: FIND RELATIONSHIPS FROM (sourceId) TO (targetId) TYPE (type)
-
-MATCH PATTERN - Matches a pattern within the graph.
-  Example: MATCH PATTERN (source)-[relationship]->(target)
-
-IMPORT CSV - Imports nodes or edges from a CSV file.
-  Example: IMPORT CSV filePath='path/to/file.csv', type='node|edge'
-
-EXPORT CSV - Exports nodes or edges to a CSV file.
-  Example: EXPORT CSV NODES filePath='path/to/nodes.csv'
-           EXPORT CSV EDGES filePath='path/to/edges.csv'
-
-IF CONDITION - Executes a command based on a condition.
-  Example: IF CONDITION [condition] THEN [action] ELSE [alternativeAction]
-
-CASE - Executes commands based on multiple conditions.
-  Example: CASE WHEN [condition] THEN [action] ELSE [alternativeAction] END
-
-Help commands: help, h, ?
-";
+            return $"Created relationship of type {relationshipType} from {fromNodeId} to {toNodeId}.";
         }
 
 
-        private string HandleMatchCypher(string cypher)
-            {
-                // Simplified MATCH handling, assuming fixed format for demonstration
-                var match = Regex.Match(cypher, @"MATCH \(n:(\w+)\) WHERE n\.(\w+) = '(.+)' RETURN n");
-                if (!match.Success) return "Invalid MATCH syntax.";
 
-                string label = match.Groups[1].Value;
-                string propertyName = match.Groups[2].Value;
-                string propertyValue = match.Groups[3].Value;
 
-                var nodes = Nodes.Where(n => n.Properties.ContainsKey(propertyName) && n.Properties[propertyName].ToString() == propertyValue && n.Properties.ContainsValue(label)).ToList();
-                return $"Found {nodes.Count} nodes matching criteria.";
-            }
-            private string HandleDeleteCypher(string cypher)
-            {
-                // Simplified DELETE handling for nodes by ID. In real Cypher, DELETE has broader use.
-                var match = Regex.Match(cypher, @"DELETE \(n {id: '(\w+)'}\)");
-                if (!match.Success) return "Invalid DELETE syntax.";
-
-                string nodeId = match.Groups[1].Value;
-                DeleteNode(nodeId);
-                return $"Deleted node {nodeId}.";
-            }
-        private string HandleDetachDelete(string cypher)
+        public void AddNode(Node node)
         {
-            var match = Regex.Match(cypher, @"DETACH DELETE (\w+)");
-            if (match.Success)
+            if (!Nodes.Exists(n => n.Id == node.Id))
             {
-                string nodeId = match.Groups[1].Value;
-
-                // Remove the node
-                Nodes.RemoveAll(n => n.Id == nodeId);
-
-                // Remove all edges associated with the node
-                Edges.RemoveAll(e => e.FromId == nodeId || e.ToId == nodeId);
-
-                return $"Deleted node {nodeId} and all associated relationships.";
+                Nodes.Add(node);
+                SaveToFile();
             }
-            return "Invalid DETACH DELETE syntax.";
+        }
+
+        public void AddEdge(string fromId, string toId, double weight, string relationshipType, Dictionary<string, object> properties = null)
+        {
+            var fromNode = Nodes.FirstOrDefault(n => n.Id == fromId);
+            var toNode = Nodes.FirstOrDefault(n => n.Id == toId);
+
+            if (fromNode != null && toNode != null && !Edges.Any(e => e.FromId == fromId && e.ToId == toId && e.RelationshipType == relationshipType))
+            {
+                var edge = new Edge
+                {
+                    FromId = fromId,
+                    ToId = toId,
+                    Weight = weight,
+                    RelationshipType = relationshipType,
+                    Properties = properties ?? new Dictionary<string, object>()
+                };
+                Edges.Add(edge);
+                SaveToFile();
+            }
         }
 
 
-        private string HandleSetCypher(string cypher)
+        private string HandleDeleteNode(string cypher)
         {
-            var nodeSetMatch = Regex.Match(cypher, @"SET NODE (\w+) SET (\w+) = '(.+)'");
-            var edgeSetMatch = Regex.Match(cypher, @"SET EDGE (\w+)-(\w+) SET (\w+) = '(.+)'");
+            var deleteByIdPattern = new Regex(@"MATCH \(n\) WHERE n\.id = '(\w+)' DELETE n", RegexOptions.IgnoreCase);
+            var deleteByLabelPattern = new Regex(@"MATCH \(n:(\w+)\) DELETE n", RegexOptions.IgnoreCase);
 
-            if (nodeSetMatch.Success)
+            // Attempt to match DELETE by ID pattern
+            var matchById = deleteByIdPattern.Match(cypher);
+            if (matchById.Success)
             {
-                string nodeId = nodeSetMatch.Groups[1].Value;
-                string propertyName = nodeSetMatch.Groups[2].Value;
-                string propertyValue = nodeSetMatch.Groups[3].Value;
-
-                var node = Nodes.FirstOrDefault(n => n.Id == nodeId);
-                if (node == null) return $"Node {nodeId} not found.";
-
-                node.Properties[propertyName] = propertyValue;
-                return $"Updated node {nodeId} set {propertyName} = {propertyValue}.";
+                string nodeId = matchById.Groups[1].Value;
+                var nodeToDelete = Nodes.FirstOrDefault(n => n.Properties.ContainsKey("id") && n.Properties["id"].ToString() == nodeId);
+                if (nodeToDelete != null)
+                {
+                    Nodes.Remove(nodeToDelete);
+                    SaveToFile();
+                    return $"Node with ID {nodeId} deleted successfully.";
+                }
+                return $"No node found with ID {nodeId}.";
             }
-            else if (edgeSetMatch.Success)
+
+            // Attempt to match DELETE by Label pattern
+            var matchByLabel = deleteByLabelPattern.Match(cypher);
+            if (matchByLabel.Success)
             {
-                string fromNodeId = edgeSetMatch.Groups[1].Value;
-                string toNodeId = edgeSetMatch.Groups[2].Value;
-                string propertyName = edgeSetMatch.Groups[3].Value;
-                string propertyValue = edgeSetMatch.Groups[4].Value;
+                string nodeLabel = matchByLabel.Groups[1].Value;
+                var nodesToDelete = Nodes.Where(n => n.Label == nodeLabel).ToList();
+                if (nodesToDelete.Any())
+                {
+                    foreach (var node in nodesToDelete)
+                    {
+                        Nodes.Remove(node);
+                    }
+                    SaveToFile();
+                    return $"Nodes with label {nodeLabel} deleted successfully.";
+                }
+                return $"No nodes found with label {nodeLabel}.";
+            }
 
-                var edge = Edges.FirstOrDefault(e => e.FromId == fromNodeId && e.ToId == toNodeId);
-                if (edge == null) return $"Edge from {fromNodeId} to {toNodeId} not found.";
+            return "Invalid DELETE syntax.";
+        }
 
-                edge.Properties[propertyName] = propertyValue;
-                return $"Updated edge from {fromNodeId} to {toNodeId} set {propertyName} = {propertyValue}.";
+
+        public string HandleDetachDelete(string cypher)
+        {
+            var pattern = new Regex(@"DETACH DELETE (\w+)(?:\s*:\s*(\w+))?", RegexOptions.IgnoreCase);
+            var match = pattern.Match(cypher);
+            if (!match.Success) return "Invalid DETACH DELETE syntax.";
+
+            string nodeIdOrLabel = match.Groups[1].Value;
+            string label = match.Groups[2].Success ? match.Groups[2].Value : null;
+
+            Predicate<Node> deletionCriteria; // Change to Predicate<Node>
+            if (string.IsNullOrEmpty(label))
+            {
+                deletionCriteria = n => n.Id == nodeIdOrLabel;
             }
             else
             {
-                return "Invalid SET syntax.";
+                deletionCriteria = n => n.Properties.TryGetValue("label", out var nodeLabel) && nodeLabel.ToString() == label;
+            }
+
+            // Use the predicate directly without conversion
+            Edges.RemoveAll(e => deletionCriteria(Nodes.FirstOrDefault(n => n.Id == e.FromId)) || deletionCriteria(Nodes.FirstOrDefault(n => n.Id == e.ToId)));
+
+            var removed = Nodes.RemoveAll(deletionCriteria) > 0; // Use directly
+
+            if (removed)
+            {
+                SaveToFile(); // Save changes to the graph
+                return label == null ?
+                    $"Node {nodeIdOrLabel} and all its relationships have been deleted." :
+                    $"Nodes with label {label} and all their relationships have been deleted.";
+            }
+            else
+            {
+                return label == null ?
+                    $"Node {nodeIdOrLabel} does not exist." :
+                    $"No nodes with label {label} exist.";
             }
         }
 
-        private string HandleAggregation(string cypher)
+
+
+        private string HandleDeleteRelationship(string cypher)
         {
-            var countMatch = Regex.Match(cypher, @"COUNT (\w+)");
-            if (countMatch.Success)
+            var pattern = new Regex(@"DELETE RELATIONSHIP FROM \((\w+)\) TO \((\w+)\) TYPE (\w+)", RegexOptions.IgnoreCase);
+            var match = pattern.Match(cypher);
+            if (!match.Success) return "Invalid DELETE RELATIONSHIP syntax.";
+
+            string fromNodeId = match.Groups[1].Value;
+            string toNodeId = match.Groups[2].Value;
+            string relationshipType = match.Groups[3].Value;
+
+            var removed = Edges.RemoveAll(e => e.FromId == fromNodeId && e.ToId == toNodeId && e.RelationshipType == relationshipType) > 0;
+
+            if (removed)
             {
-                string type = countMatch.Groups[1].Value.ToUpper();
-                switch (type)
+                SaveToFile(); // Assuming you have a method to save changes to the graph
+                return $"Relationship {relationshipType} from {fromNodeId} to {toNodeId} has been deleted.";
+            }
+            else
+            {
+                return $"Relationship {relationshipType} from {fromNodeId} to {toNodeId} does not exist.";
+            }
+        }
+        private string HandleMatchRelationship(string cypher)
+        {
+            // Extending the command format to include optional weight conditions:
+            // MATCH (a)-[r:RELATIONSHIP_TYPE {weight: '>value'}]->(b) RETURN r
+            var pattern = new Regex(@"MATCH \((\w+)\)-\[r:(\w+)\s*\{(?:weight: '([><=]?)(\d+)')?\}\]->\((\w+)\) WHERE r\.(\w+) = '([^']+)' RETURN r", RegexOptions.IgnoreCase);
+            var match = pattern.Match(cypher);
+            if (!match.Success) return "Invalid MATCH syntax for relationship.";
+
+            // Extracting values from the command
+            string startNodeAlias = match.Groups[1].Value;
+            string relationshipType = match.Groups[2].Value;
+            string weightComparison = match.Groups[3].Value;
+            string weightValue = match.Groups[4].Value;
+            string endNodeAlias = match.Groups[5].Value;
+            string propertyName = match.Groups[6].Value;
+            string propertyValue = match.Groups[7].Value;
+
+            // Filtering edges based on the relationship type, property value, and weight conditions
+            var filteredEdges = Edges.Where(edge =>
+                edge.RelationshipType == relationshipType &&
+                edge.Properties.TryGetValue(propertyName, out var value) && value.ToString() == propertyValue &&
+                CheckWeightCondition(edge.Weight, weightComparison, weightValue)
+            ).ToList();
+
+            if (!filteredEdges.Any())
+            {
+                return "No relationships found matching criteria.";
+            }
+
+            return FormatRelationships(filteredEdges);
+        }
+
+        private bool CheckWeightCondition(double edgeWeight, string comparison, string value)
+        {
+            if (string.IsNullOrEmpty(comparison) || string.IsNullOrEmpty(value))
+            {
+                // If no weight condition is specified, don't filter by weight
+                return true;
+            }
+
+            double weightValue = double.Parse(value);
+            switch (comparison)
+            {
+                case ">": return edgeWeight > weightValue;
+                case "<": return edgeWeight < weightValue;
+                case "=": return edgeWeight == weightValue;
+                default: throw new ArgumentException("Invalid weight comparison operator.");
+            }
+        }
+
+        private string FormatRelationships(List<Edge> edges)
+        {
+            var stringBuilder = new StringBuilder();
+            foreach (var edge in edges)
+            {
+                stringBuilder.AppendLine($"Relationship: {edge.RelationshipType}, From: {edge.FromId}, To: {edge.ToId}, Weight: {edge.Weight}");
+                foreach (var prop in edge.Properties)
                 {
-                    case "NODES":
-                        return $"Total nodes: {Nodes.Count()}";
-                    case "EDGES":
-                        return $"Total edges: {Edges.Count()}";
-                    default:
-                        return "Unsupported aggregation type.";
+                    stringBuilder.AppendLine($"\t{prop.Key}: {prop.Value}");
                 }
             }
-            return "Invalid aggregation syntax.";
+            return stringBuilder.ToString();
         }
 
-            // IF CONDITION [condition] THEN [action] ELSE [alternative action]
-            // Where [condition] is a simple expression (e.g., "node exists"), [action] and [alternative action]
-            // are actions to be taken based on the condition. 
+
+      
+
+
+        private string HandleSetRelationshipProperty(string cypher)
+        {
+            // Example Cypher: SET RELATIONSHIP (fromId)-(toId) {property: 'value'}
+            var pattern = new Regex(@"SET RELATIONSHIP \((\w+)\)-\((\w+)\) \{(.+)\}", RegexOptions.IgnoreCase);
+            var match = pattern.Match(cypher);
+            if (!match.Success) return "Invalid syntax for SET RELATIONSHIP.";
+
+            string fromId = match.Groups[1].Value;
+            string toId = match.Groups[2].Value;
+            var properties = ParseProperties(match.Groups[3].Value);
+
+            var edge = Edges.FirstOrDefault(e => e.FromId == fromId && e.ToId == toId);
+            if (edge == null) return "Relationship does not exist.";
+
+            foreach (var prop in properties)
+            {
+                edge.Properties[prop.Key] = prop.Value;
+            }
+
+            SaveToFile();
+            return $"Updated properties of relationship from {fromId} to {toId}.";
+        }
 
 
 
-            private string HandleConditional(string cypher)
+
+
+        private string HandleSetNodeProperty(string cypher)
+        {
+            var pattern = new Regex(@"SET NODE \((\w+)\) SET (\w+) = '(.+)'", RegexOptions.IgnoreCase);
+            var match = pattern.Match(cypher);
+            if (!match.Success) return "Invalid SET NODE syntax.";
+
+            string nodeId = match.Groups[1].Value;
+            string propertyName = match.Groups[2].Value;
+            string propertyValue = match.Groups[3].Value;
+
+            var node = Nodes.FirstOrDefault(n => n.Id == nodeId);
+            if (node == null)
+            {
+                return $"Node {nodeId} does not exist.";
+            }
+
+            // Set or update the property value
+            if (node.Properties.ContainsKey(propertyName))
+            {
+                node.Properties[propertyName] = propertyValue;
+            }
+            else
+            {
+                node.Properties.Add(propertyName, propertyValue);
+            }
+
+            SaveToFile(); // Assuming you have a method to save changes to the graph
+            return $"Property {propertyName} of node {nodeId} has been set to {propertyValue}.";
+        }
+
+
+
+       
+
+        private Dictionary<string, object> ParseProperties(string propertiesString)
+        {
+            var properties = new Dictionary<string, object>();
+            var propsMatches = Regex.Matches(propertiesString, @"(\w+): '([^']*)'");
+            foreach (Match match in propsMatches)
+            {
+                properties[match.Groups[1].Value] = match.Groups[2].Value;
+            }
+            return properties;
+        }
+
+        public void DeleteEdge(string fromNodeId, string toNodeId)
+        {
+            Edges.RemoveAll(e => e.FromId == fromNodeId && e.ToId == toNodeId);
+            SaveToFile();
+        }
+
+        public List<Node> QueryNodesByProperty(string propertyName, object value)
+        {
+            return Nodes.Where(n => n.Properties.ContainsKey(propertyName) && n.Properties[propertyName].Equals(value)).ToList();
+        }
+
+        public List<Edge> QueryEdgesByProperty(string propertyName, object value)
+        {
+            return Edges.Where(e => e.Properties.ContainsKey(propertyName) && e.Properties[propertyName].Equals(value)).ToList();
+        }
+
+        // Find all neighbors of a specific node
+        public List<Node> FindNeighbors(string nodeId)
+        {
+            var neighbors = new List<Node>();
+
+            // Add nodes that are at the end of an outgoing edge from the given node
+            var outgoingNeighbors = Edges.Where(e => e.From.Id == nodeId).Select(e => e.To).ToList();
+            neighbors.AddRange(outgoingNeighbors);
+
+            // Add nodes that are at the start of an incoming edge to the given node
+            var incomingNeighbors = Edges.Where(e => e.To.Id == nodeId).Select(e => e.From).ToList();
+            neighbors.AddRange(incomingNeighbors);
+
+            return neighbors.Distinct().ToList(); // Remove duplicates and return
+        }
+
+        private string HandleCreateNode(string cypher)
+        {
+            var pattern = new Regex(@"CREATE \((\w+):(\w+) \{(.+)\}\)", RegexOptions.IgnoreCase);
+            var match = pattern.Match(cypher);
+            if (!match.Success) return "Invalid CREATE syntax for node.";
+
+            string nodeId = match.Groups[1].Value;
+            string label = match.Groups[2].Value; // This example uses label, which you may or may not need.
+            var properties = ParseProperties(match.Groups[3].Value);
+
+            if (Nodes.Any(n => n.Id == nodeId))
+            {
+                return $"Node with id {nodeId} already exists.";
+            }
+
+            var node = new Node { Id = nodeId, Properties = properties };
+            Nodes.Add(node);
+            SaveToFile();
+            return $"Node {nodeId} created successfully.";
+        }
+
+        private string HandleMergeNode(string cypher)
+        {
+            var pattern = new Regex(@"MERGE \((\w+):(\w+) \{(.+)\}\)", RegexOptions.IgnoreCase);
+            var match = pattern.Match(cypher);
+            if (!match.Success) return "Invalid MERGE syntax for node.";
+
+            string nodeId = match.Groups[1].Value;
+            string label = match.Groups[2].Value; // As before, the use of label depends on your implementation.
+            var properties = ParseProperties(match.Groups[3].Value);
+
+            var node = Nodes.FirstOrDefault(n => n.Id == nodeId);
+            if (node == null)
+            {
+                node = new Node { Id = nodeId, Properties = properties };
+                Nodes.Add(node);
+                SaveToFile();
+                return $"Node {nodeId} merged (created) successfully.";
+            }
+            else
+            {
+                // Update existing node properties with new values from MERGE command
+                foreach (var prop in properties)
+                {
+                    if (node.Properties.ContainsKey(prop.Key))
+                    {
+                        node.Properties[prop.Key] = prop.Value;
+                    }
+                    else
+                    {
+                        node.Properties.Add(prop.Key, prop.Value);
+                    }
+                }
+                SaveToFile();
+                return $"Node {nodeId} merged (updated) successfully.";
+            }
+        }
+
+
+
+       
+
+
+
+
+
+
+
+
+
+
+        // IF CONDITION [condition] THEN [action] ELSE [alternative action]
+        // Where [condition] is a simple expression (e.g., "node exists"), [action] and [alternative action]
+        // are actions to be taken based on the condition. 
+
+
+
+        private string HandleConditional(string cypher)
         {
             // For demonstration, let's parse a simplified IF CONDITION statement
             var match = Regex.Match(cypher, @"IF CONDITION\s+\[(.*?)\]\s+THEN\s+\[(.*?)\]\s+ELSE\s+\[(.*?)\]", RegexOptions.IgnoreCase);
@@ -427,11 +673,7 @@ Help commands: help, h, ?
             }
         }
 
-
-        // Simplified regex pattern for matching CASE statement components
-        // This pattern is extremely simplified and assumes well-formed input 
-
-        private string HandleCaseCommand(string cypher)
+        private string HandleCase(string cypher)
         {
             var casePattern = @"CASE\s+WHEN\s+(.*?)\s+THEN\s+(.*?)\s+(ELSE\s+(.*?))?\s+END";
             var matches = Regex.Matches(cypher, casePattern, RegexOptions.IgnoreCase | RegexOptions.Singleline);
@@ -483,6 +725,86 @@ Help commands: help, h, ?
             return "Error processing CASE statement. Please check the syntax.";
         }
 
+        private string HandleCountNodes()
+        {
+            int nodeCount = Nodes.Count;
+            return $"Total nodes: {nodeCount}.";
+        }
+
+        private string HandleCountEdges()
+        {
+            int edgeCount = Edges.Count;
+            return $"Total edges: {edgeCount}.";
+        }
+
+        private string HandleAggregateSum(string cypher)
+        {
+            var match = Regex.Match(cypher, @"AGGREGATE SUM (\w+) ON (\w+)", RegexOptions.IgnoreCase);
+            if (!match.Success) return "Invalid AGGREGATE SUM syntax.";
+
+            string propertyName = match.Groups[1].Value;
+            string targetType = match.Groups[2].Value.ToLower();
+
+            double sum = 0;
+            if (targetType == "nodes")
+            {
+                sum = Nodes.Where(n => n.Properties.ContainsKey(propertyName))
+                           .Sum(n => Convert.ToDouble(n.Properties[propertyName]));
+            }
+            else if (targetType == "edges")
+            {
+                sum = Edges.Where(e => e.Properties.ContainsKey(propertyName))
+                           .Sum(e => Convert.ToDouble(e.Properties[propertyName]));
+            }
+            else
+            {
+                return "Target type for AGGREGATE SUM must be either 'nodes' or 'edges'.";
+            }
+
+            return $"Sum of {propertyName} on {targetType}: {sum}.";
+        }
+        private string HandleAggregateAvg(string cypher)
+        {
+            var match = Regex.Match(cypher, @"AGGREGATE AVG (\w+) ON (\w+)", RegexOptions.IgnoreCase);
+            if (!match.Success) return "Invalid AGGREGATE AVG syntax.";
+
+            string propertyName = match.Groups[1].Value;
+            string targetType = match.Groups[2].Value.ToLower();
+
+            double avg = 0;
+            if (targetType == "nodes")
+            {
+                avg = Nodes.Where(n => n.Properties.ContainsKey(propertyName))
+                           .Average(n => Convert.ToDouble(n.Properties[propertyName]));
+            }
+            else if (targetType == "edges")
+            {
+                avg = Edges.Where(e => e.Properties.ContainsKey(propertyName))
+                           .Average(e => Convert.ToDouble(e.Properties[propertyName]));
+            }
+            else
+            {
+                return "Target type for AGGREGATE AVG must be either 'nodes' or 'edges'.";
+            }
+
+            return $"Average of {propertyName} on {targetType}: {avg}.";
+        }
+
+
+        private string HandleFindRelationships(string cypher)
+        {
+            var match = Regex.Match(cypher, @"FIND RELATIONSHIPS FROM (\w+) TO (\w+)", RegexOptions.IgnoreCase);
+            if (!match.Success) return "Invalid FIND RELATIONSHIPS syntax.";
+
+            string fromNodeId = match.Groups[1].Value;
+            string toNodeId = match.Groups[2].Value;
+
+            var relationships = Edges.Where(e => e.FromId == fromNodeId && e.ToId == toNodeId).ToList();
+            return $"Found {relationships.Count} relationships from {fromNodeId} to {toNodeId}.";
+        }
+
+
+
 
         public bool EvaluateCondition(string condition)
         {
@@ -528,44 +850,38 @@ Help commands: help, h, ?
             return false;
         }
 
-        private string HandleMatchPatternCypher(string cypher)
-            {
-                var match = Regex.Match(cypher, @"MATCH PATTERN \((\w+)\)-\[(\w+)\]->\((\w+)\)");
-                if (!match.Success) return "Invalid MATCH PATTERN syntax.";
-
-                string startNodeId = match.Groups[1].Value;
-                string relationshipType = match.Groups[2].Value;
-                string endNodeId = match.Groups[3].Value;
-
-                var startCondition = new Func<Node, bool>(node => node.Id == startNodeId);
-                var endCondition = new Func<Node, bool>(node => node.Id == endNodeId);
-
-                var matches = MatchPattern(startCondition, relationshipType, endCondition);
-                return $"Found {matches.Count} pattern matches for {startNodeId}-{relationshipType}->{endNodeId}.";
-
-            }
-        private string HandleFindRelationshipsCypher(string cypher)
+        private string HandleMatchPattern(string cypher)
         {
-            var match = Regex.Match(cypher, @"FIND RELATIONSHIPS FROM (\w+) TO (\w+) TYPE (\w+)");
-            if (!match.Success) return "Invalid FIND RELATIONSHIPS syntax.";
+            var pattern = new Regex(@"MATCH \((\w+)\)-\[\:(\w+) \{(.+): '(.+)'\}\]->\((\w+)\)", RegexOptions.IgnoreCase);
+            var match = pattern.Match(cypher);
+            if (!match.Success) return "Invalid MATCH syntax for relationship.";
 
-            string fromNodeId = match.Groups[1].Value;
-            string toNodeId = match.Groups[2].Value;
-            string relationshipType = match.Groups[3].Value;
+            string relationshipType = match.Groups[2].Value;
+            string propertyName = match.Groups[3].Value;
+            string propertyValue = match.Groups[4].Value;
 
-            var relationships = FindRelationships(fromNodeId, toNodeId, relationshipType);
-            return $"Found {relationships.Count} relationships of type '{relationshipType}' from {fromNodeId} to {toNodeId}.";
+            var matchingRelationships = Edges.Where(e => e.RelationshipType == relationshipType && e.Properties.ContainsKey(propertyName) && e.Properties[propertyName].ToString() == propertyValue).ToList();
 
+            return $"Found {matchingRelationships.Count} relationships of type {relationshipType} matching {propertyName} = {propertyValue}.";
         }
 
-        public List<Edge> FindRelationships(string fromNodeId, string toNodeId, string relationshipType = null)
+        private string HandleMatchNode(string cypher)
         {
-            return Edges.Where(e =>
-                e.FromId == fromNodeId &&
-                e.ToId == toNodeId &&
-                (relationshipType == null || e.Relationship.Equals(relationshipType, StringComparison.OrdinalIgnoreCase))
-            ).ToList();
+            var pattern = new Regex(@"MATCH \((\w+):(\w+) \{(.+): '(.+)'\}\)", RegexOptions.IgnoreCase);
+            var match = pattern.Match(cypher);
+            if (!match.Success) return "Invalid MATCH syntax for node.";
+
+            string label = match.Groups[2].Value; // Example uses label, which you may or may not need.
+            string propertyName = match.Groups[3].Value;
+            string propertyValue = match.Groups[4].Value;
+
+            var matchingNodes = Nodes.Where(n => n.Properties.ContainsKey(propertyName) && n.Properties[propertyName].ToString() == propertyValue).ToList();
+
+            return $"Found {matchingNodes.Count} nodes matching {propertyName} = {propertyValue}.";
         }
+
+
+       
 
         public List<(Node, Node)> MatchPattern(Func<Node, bool> startCondition, string relationshipType, Func<Node, bool> endCondition)
         {
@@ -582,17 +898,7 @@ Help commands: help, h, ?
             return matches;
         }
 
-        private Dictionary<string, string> ParseProperties(string data)
-            {
-                var properties = new Dictionary<string, string>();
-                var matches = Regex.Matches(data, @"(\w+)=([^\s,]+)");
-                foreach (Match match in matches)
-                {
-                    properties[match.Groups[1].Value] = match.Groups[2].Value;
-                }
-                return properties;
-            }
-
+   
 
 
 
@@ -668,98 +974,172 @@ Help commands: help, h, ?
         // parameter and adds them to the graph accordingly.
 
 
-        private string HandleImportCsvCypher(string cypher)
+        private string HandleImportCsv(string cypher)
         {
-            var match = Regex.Match(cypher, @"IMPORT CSV filePath='(?<filePath>.+?)', type='(?<type>node|edge)'", RegexOptions.IgnoreCase);
-            if (!match.Success)
+            // Example Cypher: IMPORT CSV 'filePath.csv' AS NODES|EDGES
+            var pattern = new Regex(@"IMPORT CSV '([^']+)' AS (NODES|EDGES)", RegexOptions.IgnoreCase);
+            var match = pattern.Match(cypher);
+            if (!match.Success) return "Invalid syntax for IMPORT CSV.";
+
+            string filePath = match.Groups[1].Value;
+            string type = match.Groups[2].Value.ToUpper();
+
+            switch (type)
             {
-                return "Invalid IMPORT CSV syntax.";
+                case "NODES":
+                    return ImportCsvNodes(filePath);
+                case "EDGES":
+                    return ImportCsvEdges(filePath);
+                default:
+                    return "Invalid type for IMPORT CSV. Use 'NODES' or 'EDGES'.";
             }
-
-            var filePath = match.Groups["filePath"].Value;
-            var type = match.Groups["type"].Value.Equals("node", StringComparison.OrdinalIgnoreCase);
-
-            ImportCsv(filePath, type);
-
-            return type ? "Nodes imported from CSV successfully." : "Edges imported from CSV successfully.";
         }
-        public void ImportCsv(string filePath, bool isNodeCsv = true)
+
+        private string ImportCsvNodes(string filePath)
         {
             try
             {
                 using (var reader = new StreamReader(filePath))
-                using (var csv = new CsvReader(reader, new CsvConfiguration(CultureInfo.InvariantCulture)
+                using (var csv = new CsvReader(reader, CultureInfo.InvariantCulture))
                 {
-                    PrepareHeaderForMatch = args => args.Header.ToLower(),
-                }))
-                {
-                    if (isNodeCsv)
+                    csv.Context.RegisterClassMap<NodeMap>(); // Register mapping configuration
+                    var records = csv.GetRecords<Node>().ToList();
+                    foreach (var record in records)
                     {
-                        var records = csv.GetRecords<dynamic>().ToList();
-                        foreach (IDictionary<string, object> record in records)
+                        if (!Nodes.Any(n => n.Id == record.Id))
                         {
-                            var node = new Node
-                            {
-                                Id = record["id"].ToString(),
-                                Properties = record.ToDictionary(k => k.Key, k => k.Value) // Explicitly converting to Dictionary<string, object>
-                            };
-                            AddNode(node);
+                            Nodes.Add(record);
                         }
-                    }
-                    else // Assuming it's an edge CSV
-                    {
-                        var records = csv.GetRecords<dynamic>().ToList();
-                        foreach (IDictionary<string, object> record in records)
+                        else
                         {
-                            var edge = new Edge
-                            {
-                                FromId = record["sourceid"].ToString(),
-                                ToId = record["targetid"].ToString(),
-                                Relationship = record["relationshiptype"].ToString(),
-                                Properties = record.ToDictionary(k => k.Key, k => k.Value) // Explicitly converting to Dictionary<string, object>
-                            };
-
-                            // Ensure From and To nodes exist in the graph
-                            edge.From = Nodes.FirstOrDefault(n => n.Id == edge.FromId);
-                            edge.To = Nodes.FirstOrDefault(n => n.Id == edge.ToId);
-                            if (edge.From != null && edge.To != null)
-                            {
-                                AddEdge(edge);
-                            }
+                            // Handle duplicate node ID situation, if necessary
                         }
                     }
                 }
-
-                Console.WriteLine("CSV data imported successfully.");
+                SaveToFile(); // Save changes to your data store
+                return "Nodes imported from CSV successfully.";
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"An error occurred while importing CSV data: {ex.Message}");
+                return $"Failed to import nodes: {ex.Message}";
             }
         }
 
 
-        // EXPORT CSV NODES filePath='path/to/export/nodes.csv'
-        // EXPORT CSV EDGES filePath = 'path/to/export/edges.csv'
-        public string HandleExportCsvCypher(string cypher)
+        // Define a CsvHelper class map to handle the custom mapping
+        public class NodeMap : ClassMap<Node>
         {
-            var matchNodes = Regex.Match(cypher, @"EXPORT CSV NODES filePath='(?<filePath>.+?)'", RegexOptions.IgnoreCase);
-            var matchEdges = Regex.Match(cypher, @"EXPORT CSV EDGES filePath='(?<filePath>.+?)'", RegexOptions.IgnoreCase);
-
-            if (matchNodes.Success)
+            public NodeMap()
             {
-                var filePath = matchNodes.Groups["filePath"].Value;
-                return ExportNodesToCsv(filePath) ? $"Nodes exported to CSV successfully at {filePath}." : "Failed to export nodes to CSV.";
+                Map(m => m.Id).Name("Id");
+                Map(m => m.Label).Name("Label");
+                // Add mappings for properties if they are included in the CSV in a manageable way
             }
-            else if (matchEdges.Success)
-            {
-                var filePath = matchEdges.Groups["filePath"].Value;
-                return ExportEdgesToCsv(filePath) ? $"Edges exported to CSV successfully at {filePath}." : "Failed to export edges to CSV.";
-            }
-
-            return "Invalid EXPORT CSV command.";
         }
-        public bool ExportNodesToCsv(string filePath)
+
+
+
+
+        private string ImportCsvEdges(string filePath)
+        {
+            try
+            {
+                using (var reader = new StreamReader(filePath))
+                using (var csv = new CsvReader(reader, CultureInfo.InvariantCulture))
+                {
+                    var records = csv.GetRecords<Edge>().ToList();
+                    foreach (var record in records)
+                    {
+                        // Add logic to avoid duplicate edges if necessary
+                        Edges.Add(record);
+                    }
+                }
+                SaveToFile(); // Save changes
+                return "Edges imported from CSV successfully.";
+            }
+            catch (Exception ex)
+            {
+                return $"Failed to import edges: {ex.Message}";
+            }
+        }
+
+
+        private string HandleImportJSON(string cypher)
+        {
+            // Example Cypher: IMPORT CSV 'filePath.csv' AS NODES|EDGES
+            var pattern = new Regex(@"IMPORT JSON '([^']+)'", RegexOptions.IgnoreCase);
+            var match = pattern.Match(cypher);
+            if (!match.Success) return "Invalid syntax for IMPORT JSON.";
+
+            string filePath = match.Groups[1].Value;
+            
+            return ImportJSON(filePath);
+        }
+
+
+//  {
+//  "nodes": [
+//    {"id": "1", "label": "Person", "properties": {"name": "Alice"}
+//},
+//    { "id": "2", "label": "Person", "properties": { "name": "Bob"} }
+//  ],
+//  "edges": [
+//    {"fromId": "1", "toId": "2", "relationshipType": "KNOWS", "properties": {"since": "2022"}}
+//  ]
+//}
+
+        private string ImportJSON(string filePath)
+        {
+            try
+            {
+                var jsonData = File.ReadAllText(filePath);
+                var graphData = JsonConvert.DeserializeObject<GraphData>(jsonData);
+
+                if (graphData?.Nodes != null)
+                {
+                    foreach (var nodeData in graphData.Nodes)
+                    {
+                        AddNode(new Node
+                        {
+                            Id = nodeData.Id,
+                            Label = nodeData.Label,
+                            Properties = nodeData.Properties
+                        });
+                    }
+                }
+
+                if (graphData?.Edges != null)
+                {
+                    foreach (var edgeData in graphData.Edges)
+                    {
+                        AddEdge(edgeData.FromId, edgeData.ToId, edgeData.Weight, edgeData.RelationshipType, edgeData.Properties);
+                    }
+                }
+                SaveToFile(); // Save changes
+                return "JSON imported from CSV successfully.";
+            }
+            catch (Exception ex)
+            {
+                return $"Failed to import edges: {ex.Message}";
+            }
+        }
+
+        private string HandleExportCsvNodes(string cypher)
+        {
+            // Example Cypher: EXPORT CSV NODES 'filePath.csv'
+            var pattern = new Regex(@"EXPORT CSV NODES '([^']+)'", RegexOptions.IgnoreCase);
+            var match = pattern.Match(cypher);
+            if (!match.Success) return "Invalid syntax for EXPORT CSV NODES.";
+
+            string filePath = match.Groups[1].Value;
+
+            // Placeholder for the actual export logic
+            ExportNodesToCsv(filePath);
+
+            return $"Nodes exported to CSV successfully at {filePath}.";
+        }
+
+        private void ExportNodesToCsv(string filePath)
         {
             try
             {
@@ -768,39 +1148,44 @@ Help commands: help, h, ?
                 {
                     csv.WriteRecords(Nodes);
                 }
-                return true;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error exporting nodes to CSV: {ex.Message}");
-                return false;
+                throw new Exception($"Failed to export nodes to CSV: {ex.Message}");
             }
         }
 
-        public bool ExportEdgesToCsv(string filePath)
+        private string HandleExportCsvEdges(string cypher)
+        {
+            // Example Cypher: EXPORT CSV EDGES 'filePath.csv'
+            var pattern = new Regex(@"EXPORT CSV EDGES '([^']+)'", RegexOptions.IgnoreCase);
+            var match = pattern.Match(cypher);
+            if (!match.Success) return "Invalid syntax for EXPORT CSV EDGES.";
+
+            string filePath = match.Groups[1].Value;
+
+            // Placeholder for the actual export logic
+            ExportEdgesToCsv(filePath);
+
+            return $"Edges exported to CSV successfully at {filePath}.";
+        }
+
+        private void ExportEdgesToCsv(string filePath)
         {
             try
             {
                 using (var writer = new StreamWriter(filePath))
                 using (var csv = new CsvWriter(writer, CultureInfo.InvariantCulture))
                 {
-                    csv.WriteRecords(Edges.Select(e => new
-                    {
-                        e.FromId,
-                        e.ToId,
-                        e.Relationship,
-                        e.Weight,
-                        Properties = string.Join(", ", e.Properties.Select(p => $"{p.Key}: {p.Value}"))
-                    }));
+                    csv.WriteRecords(Edges);
                 }
-                return true;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error exporting edges to CSV: {ex.Message}");
-                return false;
+                throw new Exception($"Failed to export edges to CSV: {ex.Message}");
             }
         }
+
 
 
         public String CreateDatabase()
@@ -831,39 +1216,37 @@ Help commands: help, h, ?
             }
         }
 
-            public void SaveToFile()
+        public void SaveToFile()
+        {
+            try
             {
-                try
+                // Create a GraphData object that directly uses the current lists of nodes and edges.
+                // There's no need to recreate the Edge objects if they already have the correct structure.
+                var graphData = new GraphData
                 {
-                    var graphData = new GraphData
-                    {
-                        Nodes = this.Nodes,
-                        Edges = this.Edges.Select(e => new Edge
-                        {
-                            FromId = e.FromId,
-                            ToId = e.ToId,
-                            Relationship = e.Relationship,
-                            Weight = e.Weight,
-                            Properties = e.Properties
-                        }).ToList()
-                    };
+                    Nodes = this.Nodes,
+                    Edges = this.Edges
+                };
 
-                    var json = JsonConvert.SerializeObject(graphData, Newtonsoft.Json.Formatting.Indented);
-                    var directory = Path.GetDirectoryName(_graphPath);
-                    if (!Directory.Exists(directory))
-                    {
-                        Directory.CreateDirectory(directory ?? string.Empty);
-                    }
+                // Serialize the GraphData object to JSON, formatting it for easy reading.
+                var json = JsonConvert.SerializeObject(graphData, Formatting.Indented);
 
-                    File.WriteAllText(_graphPath, json);
-                }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine($"Failed to save the graph to {_graphPath}: {ex.Message}");
-                }
+                // Ensure the directory for the graph data file exists before trying to write the file.
+                var directory = Path.GetDirectoryName(_graphPath) ?? string.Empty; // Handle null or empty directory.
+                Directory.CreateDirectory(directory); // This method is safe to call even if the directory already exists.
+
+                // Write the JSON string to the file path designated for graph data storage.
+                File.WriteAllText(_graphPath, json);
             }
+            catch (Exception ex)
+            {
+                // Log the exception to the console. In a real-world application, consider using a logging framework.
+                Console.Error.WriteLine($"Failed to save the graph to {_graphPath}: {ex.Message}");
+            }
+        }
 
-            public void LoadGraph()
+
+        public void LoadGraph()
             {
                 isDatabaseLoaded = false;
                 if (!File.Exists(_graphPath))

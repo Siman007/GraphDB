@@ -11,6 +11,9 @@ namespace GraphDB
         public double Weight { get; set; }
         public Dictionary<string, object> Properties { get; set; } = new Dictionary<string, object>();
 
+        // Added for distinguishing different types of relationships
+        public string RelationshipType { get; set; }
+
         [JsonIgnore]
         public Node From { get; set; }
 
