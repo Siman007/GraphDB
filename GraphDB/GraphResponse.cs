@@ -1,4 +1,6 @@
 ﻿using System;
+using Newtonsoft.Json;
+
 namespace GraphDB
 {
     public class NodeResponse
@@ -21,28 +23,42 @@ namespace GraphDB
         public double Value { get; set; }
     }
 
-    public class ApiResponse<T>
-    {
-        public bool Success { get; set; }
-        public T Data { get; set; }
-        public string Message { get; set; }
 
-        public ApiResponse(bool success, T data, string message = null)
+
+
+        // Generic wrapper around ApiResponse to include typed data
+        public class ApiResponse<T>
         {
-            Success = success;
-            Data = data;
-            Message = message;
+            public bool Success { get; set; }
+            public string Message { get; set; }
+            public T Data { get; set; }
+
+            // This property serializes Data to a JSON string
+            public string DataJson => JsonConvert.SerializeObject(Data);
+
+            // Factory method for success responses
+            public static ApiResponse<T> SuccessResponse(T data, string message)
+            {
+                return new ApiResponse<T>
+                {
+                    Success = true,
+                    Message = message,
+                    Data = data
+                };
+            }
+
+            // Factory method for error responses
+            public static ApiResponse<T> ErrorResponse(string message)
+            {
+                return new ApiResponse<T>
+                {
+                    Success = false,
+                    Message = message,
+                    Data = default
+
+                };
+            }
         }
 
-        public static ApiResponse<T> SuccessResponse(T data, string message = null)
-        {
-            return new ApiResponse<T>(true, data, message);
-        }
-
-        public static ApiResponse<T> ErrorResponse(string message)
-        {
-            return new ApiResponse<T>(false, default(T), message);
-        }
-    }
 }
 

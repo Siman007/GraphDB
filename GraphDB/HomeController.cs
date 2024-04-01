@@ -28,10 +28,23 @@ namespace GraphDB
         public async Task<IActionResult> ExecuteCommand(CommandModel model)
         {
             var client = _clientFactory.CreateClient();
-            var response = await client.GetStringAsync($"api/Graph/command?query={model.Command}");
+            var httpResponse = await client.GetAsync($"api/Graph/command?query={model.Command}");
+            var responseContent = await httpResponse.Content.ReadAsStringAsync();
 
-            // Assuming deserialization and error handling is done here
-            model.History.Add(new CommandResponse { Command = model.Command, Response = response });
+            // Deserialize into ApiResponse<T> assuming T is CommandResponse or similar
+            var apiResponse = JsonSerializer.Deserialize<ApiResponse<CommandResponse>>(responseContent);
+
+            // Check if the API response was successful
+            if (apiResponse?.Success == true)
+            {
+                // Assuming ApiResponse.DataJson contains the response you want to display
+                model.History.Add(new CommandResponse { Command = model.Command, Response = apiResponse.DataJson });
+            }
+            else
+            {
+                // Handle error or unsuccessful response
+                model.History.Add(new CommandResponse { Command = model.Command, Response = apiResponse?.Message ?? "Error executing command" });
+            }
 
             model.Command = ""; // Reset command input
             var modelJson = JsonSerializer.Serialize(model);
@@ -39,6 +52,7 @@ namespace GraphDB
 
             return View("Index", model);
         }
+
 
         [HttpPost]
         public IActionResult DeleteCommand(int index)

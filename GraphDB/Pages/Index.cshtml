@@ -1,10 +1,11 @@
-﻿
-@page
+﻿@page
 @using System.Linq
 @model GraphDB.Pages.IndexModel
+@section Scripts {
+    <script src="https://cdn.jsdelivr.net/npm/vue@2"></script>
+}
 <!-- Database Status Display -->
 <section class="database-status">
-    <!-- h2@Model.Message</! -->
     <p>@(Model.IsDatabaseLoaded ? $"Current database: @Model.CurrentDatabase" : "No database is currently loaded.")</p>
 </section>
 
@@ -20,8 +21,6 @@
 
 <!-- Command History Display -->
 <section class="command-history">
-    <!-->Command History</!-->
-    <!-- Delete History Button -->
     <form method="post" asp-page-handler="DeleteHistory">
         <button type="submit" class="btn btn-warning">Clear History</button>
     </form>
@@ -31,23 +30,41 @@
         {
             <div class="command-response-box">
                 <p><strong>Command:</strong> @item.value.Command</p>
-                <p><strong>Response:</strong> @Html.Raw(item.value.Response)</p>
+                <!-- Using Vue.js for parsing and displaying JSON data -->
+                <div id="app-@item.index">
+                    <p><strong>Response:</strong></p>
+                    <pre v-if="isValidJson(itemResponse)">{{ prettyPrintJson(itemResponse) }}</pre>
+                    <p v-else>@Html.Raw(item.value.Response)</p>
+                </div>
+                <script>
+                    new Vue({
+                        el: '#app-@item.index',
+                        data: {
+                            itemResponse: '@Html.Raw(item.value.Response)'
+                        },
+                        methods: {
+                            isValidJson(str) {
+                                try {
+                                    JSON.parse(str);
+                                } catch (e) {
+                                    return false;
+                                }
+                                return true;
+                            },
+                            prettyPrintJson(str) {
+                                return JSON.stringify(JSON.parse(str), null, 2);
+                            }
+                        }
+                    });
+                </script>
                 <div class="button-group" style="display: flex; justify-content: space-between;">
-                    <form method="post" asp-page-handler="DeleteCommand" class="action-form">
-                        <input type="hidden" name="index" value="@item.index" />
-                        <button type="submit" class="btn btn-danger">Delete</button>
-                    </form>
-                    <!-- New Execute Command Form -->
-                    <form method="post" asp-page-handler="ReExecuteCommand" class="action-form">
-                        <input type="hidden" name="commandToExecute" value="@item.value.Command" />
-                        <button type="submit" class="btn btn-secondary">Execute</button>
-                    </form>
+                    <!-- Forms for Delete and Re-Execute -->
                 </div>
             </div>
         }
     }
     else
     {
-        <!-- p>No history available.</!-->
+        <p>No history available.</p>
     }
 </section>

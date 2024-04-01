@@ -58,18 +58,21 @@ namespace GraphDB
                 return BadRequest($"Error processing command: {ex.Message}");
             }
         }
-
         [HttpGet("findneighbors")]
-        public ActionResult<List<Node>> FindNeighbors([FromQuery] string cypher)
+        public ActionResult<List<NodeResponse>> FindNeighbors([FromQuery] string cypher)
         {
-            var neighbors = graph.HandleFindNeighbors(cypher);
+            var response = graph.HandleFindNeighbors(cypher);
 
-            if (neighbors == null || !neighbors.Any())
+            // Check if the ApiResponse indicates success and if the data within has any elements
+            if (!response.Success || response.Data == null || response.Data.Count == 0)
             {
-                return NotFound("No neighbors found.");
+                return NotFound(response.Message);
             }
 
-            return Ok(neighbors);
+            // Return the data part of the ApiResponse directly, assuming it's already a serialized JSON string
+            // If your setup expects an actual list of objects to be returned and serialized by ASP.NET Core, you might return the Data property itself
+            // For example, assuming Data is a List<NodeResponse>
+            return Ok(response.Data);
         }
 
         [HttpPost("create")]
