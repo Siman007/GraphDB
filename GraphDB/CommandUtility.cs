@@ -3,9 +3,9 @@ namespace GraphDB
 {
     public static class CommandUtility
     {
-        public static string GetHelpResponse()
+        public static ApiResponse<string> GetHelpResponse()
         {
-            return @"
+            string helpText = @"
 <pre>
 Available Commands:
 
@@ -16,8 +16,10 @@ Available Commands:
 Note: 'save', 'close', 'delete', and other data manipulation commands require a database to be loaded first.
 </pre>
 ";
-        }
 
+            // Assuming ApiResponse<string> is structured to take a success flag, a message, and the data
+            return ApiResponse<string>.SuccessResponse(helpText, "Help information retrieved successfully.");
+        }
 
         // Add more utilities here as needed
     }

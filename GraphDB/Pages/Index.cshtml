@@ -1,9 +1,35 @@
 ﻿@page
 @using System.Linq
+@using Newtonsoft.Json
 @model GraphDB.Pages.IndexModel
 @section Scripts {
-    <script src="https://cdn.jsdelivr.net/npm/vue@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/vue@2.6.12"></script>
+<script>
+        document.addEventListener('DOMContentLoaded', function () {
+            var commandHistory = @Html.Raw(Json.Serialize(Model.Command.History));
+            commandHistory.forEach(function(item, index) {
+                createVueApp(index, item.response);
+            });
+        });
+
+        function createVueApp(elementIndex, responseData) {
+            new Vue({
+                el: '#app-' + elementIndex,
+                data: {
+                    itemResponse: responseData
+                },
+                computed: {
+                    formattedResponse: function() {
+                        return this.itemResponse;
+                    }
+                }
+            });
+        }
+</script>
 }
+
+
+
 <!-- Database Status Display -->
 <section class="database-status">
     <p>@(Model.IsDatabaseLoaded ? $"Current database: @Model.CurrentDatabase" : "No database is currently loaded.")</p>
@@ -30,35 +56,9 @@
         {
             <div class="command-response-box">
                 <p><strong>Command:</strong> @item.value.Command</p>
-                <!-- Using Vue.js for parsing and displaying JSON data -->
-                <div id="app-@item.index">
-                    <p><strong>Response:</strong></p>
-                    <pre v-if="isValidJson(itemResponse)">{{ prettyPrintJson(itemResponse) }}</pre>
-                    <p v-else>@Html.Raw(item.value.Response)</p>
-                </div>
-                <script>
-                    new Vue({
-                        el: '#app-@item.index',
-                        data: {
-                            itemResponse: '@Html.Raw(item.value.Response)'
-                        },
-                        methods: {
-                            isValidJson(str) {
-                                try {
-                                    JSON.parse(str);
-                                } catch (e) {
-                                    return false;
-                                }
-                                return true;
-                            },
-                            prettyPrintJson(str) {
-                                return JSON.stringify(JSON.parse(str), null, 2);
-                            }
-                        }
-                    });
-                </script>
-                <div class="button-group" style="display: flex; justify-content: space-between;">
-                    <!-- Forms for Delete and Re-Execute -->
+                <div id="@($"app-{item.index}")">
+                    <!-- Vue will render the HTML content of itemResponse here -->
+                    <pre v-html="formattedResponse"></pre>
                 </div>
             </div>
         }

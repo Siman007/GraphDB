@@ -81,14 +81,26 @@ namespace GraphDB.Pages
             else if (!IsDatabaseLoaded && (command.StartsWith("help", System.StringComparison.OrdinalIgnoreCase) ||
                command == "h" || command == "?"))
             {
+
                 // Add the help response to the command history
-                Command.History.Insert(0,new CommandResponse { Command = command, Response = CommandUtility.GetHelpResponse() });
+                var helpResponse = CommandUtility.GetHelpResponse();
+                if (helpResponse.Success)
+                {
+                    // Assuming you want to insert the response data into the command history
+                    Command.History.Insert(0, new CommandResponse { Command = command, Response = helpResponse.Data });
+                }
+                else
+                {
+                    // Handle the case where getting the help response fails
+                    Command.History.Insert(0, new CommandResponse { Command = command, Response = helpResponse.Message });
+                }
 
                 // Serialize the updated Command object and save it back into the session
                 var modelJson = JsonSerializer.Serialize(Command);
                 HttpContext.Session.SetString("CommandModel", modelJson);
 
-                
+
+
             }
             else if (IsDatabaseLoaded && (
                 command.StartsWith("save", System.StringComparison.OrdinalIgnoreCase) ||
@@ -100,6 +112,9 @@ namespace GraphDB.Pages
             {
                 var client = _clientFactory.CreateClient();
                 var response = await client.GetStringAsync($"api/Graph/command?query={command}");
+                var encodedResponse = System.Web.HttpUtility.JavaScriptStringEncode(response);
+                Command.History.Insert(0, new CommandResponse { Command = command, Response = encodedResponse });
+
 
                 // Assuming deserialization and error handling is done here
                 Command.History.Insert(0, new CommandResponse { Command = command, Response = response });
