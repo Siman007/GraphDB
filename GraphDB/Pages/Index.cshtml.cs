@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Linq;
 using System.IO;
 using GraphDB; // Assuming GraphDB is the namespace where Graph class is defined
+using System.Xml.Linq;
 
 namespace GraphDB.Pages
 {
@@ -149,12 +150,12 @@ namespace GraphDB.Pages
                 case "save":
                     SaveDatabase();
                     break;
-                case "close":
-                    CloseDatabase();
-                    break;
-                case "delete":
-                    DeleteDatabase(parameter);
-                    break;
+                //case "close":
+                //    CloseDatabase();
+                //    break;
+                //case "delete":
+                //    DeleteDatabase(parameter);
+                //    break;
             }
         }
 
@@ -188,6 +189,39 @@ namespace GraphDB.Pages
             HttpContext.Session.SetString("CurrentDatabase", databaseName);
         }
 
+        //public void CloseDatabase()
+        //{
+        //    // Check if the database is already loaded
+        //    if (IsDatabaseLoaded)
+        //    {
+        //        try
+        //        {
+        //            // Ensure any pending changes are saved to the file
+        //            SaveDatabase();
+
+        //            // Optionally, clear in-memory data structures to free up memory
+        //            // This might not be necessary depending on your application's requirements
+        //            Nodes.Clear();
+        //            Edges.Clear();
+
+        //            // Update the flag to indicate the database is no longer loaded
+        //            IsDatabaseLoaded = false;
+
+        //            // Log the successful closure of the database
+        //            Console.WriteLine("Database closed successfully.");
+        //        }
+        //        catch (Exception ex)
+        //        {
+        //            // Log any errors encountered during the close operation
+        //            LogException(ex);
+        //            throw; // Re-throw the exception if you want calling code to handle it
+        //        }
+        //    }
+        //    else
+        //    {
+        //        Console.WriteLine("No database is loaded, or it's already closed.");
+        //    }
+        //}
         private void SaveDatabase()
         {
             if (!IsDatabaseLoaded) return;
@@ -195,18 +229,44 @@ namespace GraphDB.Pages
             var graph = new Graph(CurrentDatabase);
             graph.SaveToFile();
         }
-
-        private void CloseDatabase()
+        private void LogException(Exception ex)
         {
-            HttpContext.Session.Remove("CurrentDatabase");
+            // Implement logging logic here...
+            Console.WriteLine($"Error closing database: {ex.Message}");
         }
 
-        private void DeleteDatabase(string databaseName)
-        {
-            if (CurrentDatabase != databaseName) return;
+        //private void DeleteDatabase(string databaseName)
+        //{
+        //    // Assuming "CurrentDatabase" is the session key for the current database name
+        //    var currentDatabase = HttpContext.Session.GetString("CurrentDatabase");
 
-            CloseDatabase();
-            System.IO.File.Delete(Graph.GetDatabasePath());
+        //    if (currentDatabase != databaseName) return;
+
+        //    // Close the database: removes the database name from the session.
+        //    CloseDatabase();
+
+        //    // Assuming GraphPath is an instance property now.
+        //    // This requires the Graph instance to be identified/accessible here.
+        //    // This example assumes you have a way to obtain the current Graph instance (e.g., from a service or factory).
+        //    Graph currentGraphInstance = GetCurrentGraphInstance(databaseName);
+        //    if (currentGraphInstance != null)
+        //    {
+        //        var path = currentGraphInstance.GraphPath;
+        //        if (System.IO.File.Exists(path))
+        //        {
+        //            System.IO.File.Delete(path);
+        //            // Additional cleanup as necessary, e.g., resetting instance state
+        //        }
+        //    }
+        //}
+
+        // This method would need to correctly identify and return the Graph instance for the given database name.
+        // Implementation would depend on how you manage Graph instances within your application.
+        private Graph GetCurrentGraphInstance(string databaseName)
+        {
+            // Example implementation detail
+            // This could involve looking up an instance from a collection, creating one based on stored data, etc.
+            return new Graph(databaseName); // Placeholder for actual logic
         }
 
         public IActionResult OnPostDeleteCommand(int commandIndex)
@@ -228,4 +288,7 @@ namespace GraphDB.Pages
         }
 
     }
+
+  
+
 }

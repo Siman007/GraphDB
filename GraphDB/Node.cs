@@ -10,6 +10,9 @@ namespace GraphDB
         public string Label { get; set; }
         public Dictionary<string, object> Properties { get; set; } = new Dictionary<string, object>();
     }
-  
+
+
+
+
 }
 

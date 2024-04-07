@@ -1,20 +1,16 @@
 ﻿using System;
 
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Reflection.Emit;
+
 using System.Text.RegularExpressions;
 using Newtonsoft.Json;
-using System.IO;
+
 
 using CsvHelper;
 using CsvHelper.Configuration;
-using CsvHelper.TypeConversion;
+
 using System.Globalization;
 using System.Text;
-using Microsoft.AspNetCore.Mvc;
-using GraphDB;
+
 
 namespace GraphDB
     {
@@ -30,7 +26,13 @@ namespace GraphDB
             public List<Node> Nodes { get; set; } = new List<Node>();
             public List<Edge> Edges { get; set; } = new List<Edge>();
 
-            public Graph(string graphName)
+
+            // Indexes
+            private Dictionary<string, List<Node>> nodeIndex = new Dictionary<string, List<Node>>();
+            private Dictionary<string, List<Edge>> edgeIndex = new Dictionary<string, List<Edge>>();
+
+
+        public Graph(string graphName)
             {
                 _graphName = graphName;
                 _graphPath = Path.Combine(DefaultFilePath, $"{graphName}.json");
@@ -134,7 +136,6 @@ namespace GraphDB
         }
 
 
-        
 
 
         private ApiResponse<NodeResponse> HandleNodeCreationOrMerge(Match nodeMatch)
@@ -152,6 +153,7 @@ namespace GraphDB
                 {
                     node = new Node { Id = nodeId, Properties = objectProperties };
                     Nodes.Add(node);
+                    UpdateNodeIndex(node); // Update index when a node is added or merged
                     SaveToFile();
                     return ApiResponse<NodeResponse>.SuccessResponse(
                         new NodeResponse { Id = node.Id, Label = label, Properties = node.Properties },
@@ -161,7 +163,16 @@ namespace GraphDB
                 {
                     foreach (var prop in objectProperties)
                     {
-                        node.Properties[prop.Key] = prop.Value;
+                        // Update properties and re-index if necessary
+                        if (node.Properties.ContainsKey(prop.Key) && !node.Properties[prop.Key].Equals(prop.Value))
+                        {
+                            node.Properties[prop.Key] = prop.Value;
+                            UpdateNodeIndex(node); // Re-index if properties affecting indexing are updated
+                        }
+                        else if (!node.Properties.ContainsKey(prop.Key))
+                        {
+                            node.Properties[prop.Key] = prop.Value;
+                        }
                     }
                     SaveToFile();
                     return ApiResponse<NodeResponse>.SuccessResponse(
@@ -180,6 +191,7 @@ namespace GraphDB
                 {
                     node = new Node { Id = nodeId, Properties = objectProperties };
                     Nodes.Add(node);
+                    UpdateNodeIndex(node); // Update index when a node is added
                     SaveToFile();
                     return ApiResponse<NodeResponse>.SuccessResponse(
                         new NodeResponse { Id = node.Id, Label = label, Properties = node.Properties },
@@ -187,6 +199,7 @@ namespace GraphDB
                 }
             }
         }
+
 
 
         private ApiResponse<RelationshipResponse> HandleCreateRelationship(string cypher)
@@ -225,6 +238,7 @@ namespace GraphDB
                 Properties = properties.ToDictionary(kvp => kvp.Key, kvp => (object)kvp.Value) // Ensure properties are correctly typed as object
             };
             Edges.Add(edge);
+            UpdateEdgeIndex(edge); // Update index when an edge is added
             SaveToFile();
 
             // Create the response DTO
@@ -246,6 +260,7 @@ namespace GraphDB
             if (!Nodes.Exists(n => n.Id == node.Id))
             {
                 Nodes.Add(node);
+                UpdateNodeIndex(node); // Update index when a node is added
                 SaveToFile();
             }
         }
@@ -266,9 +281,14 @@ namespace GraphDB
                     Properties = properties ?? new Dictionary<string, object>()
                 };
                 Edges.Add(edge);
+                UpdateEdgeIndex(edge); // Update index when an edge is added
                 SaveToFile();
             }
         }
+
+
+
+    
 
 
         private ApiResponse<object> HandleDeleteNode(string cypher)
@@ -285,6 +305,15 @@ namespace GraphDB
                 if (nodeToDelete != null)
                 {
                     Nodes.Remove(nodeToDelete);
+                    // Explicitly manage index on delete
+                    if (nodeToDelete.Properties.ContainsKey("id"))
+                    {
+                        var idValue = nodeToDelete.Properties["id"].ToString();
+                        if (nodeIndex.ContainsKey(idValue))
+                        {
+                            nodeIndex[idValue].Remove(nodeToDelete);
+                        }
+                    }
                     SaveToFile();
                     return ApiResponse<object>.SuccessResponse(null, $"Node with ID {nodeId} deleted successfully.");
                 }
@@ -302,7 +331,18 @@ namespace GraphDB
                     foreach (var node in nodesToDelete)
                     {
                         Nodes.Remove(node);
+
+                        // Explicitly manage index on delete
+                        if (node.Properties.ContainsKey("id"))
+                        {
+                            var idValue = node.Properties["id"].ToString();
+                            if (nodeIndex.ContainsKey(idValue))
+                            {
+                                nodeIndex[idValue].Remove(node);
+                            }
+                        }
                     }
+                    
                     SaveToFile();
                     return ApiResponse<object>.SuccessResponse(null, $"Nodes with label {nodeLabel} deleted successfully.");
                 }
@@ -328,28 +368,57 @@ namespace GraphDB
             string label = match.Groups[2].Success ? match.Groups[2].Value : null;
 
             Predicate<Node> deletionCriteria;
+            List<Node> nodesToDelete;
             if (string.IsNullOrEmpty(label))
             {
-                deletionCriteria = n => n.Id == nodeIdOrLabel;
+                // If deleting by ID, find the node directly
+                var node = Nodes.FirstOrDefault(n => n.Id == nodeIdOrLabel);
+                if (node == null) return ApiResponse<object>.ErrorResponse($"Node {nodeIdOrLabel} does not exist.");
+                nodesToDelete = new List<Node> { node };
             }
             else
             {
-                deletionCriteria = n => n.Properties.TryGetValue("label", out var nodeLabel) && nodeLabel.ToString() == label;
+                // If deleting by label, find all nodes matching the label
+                nodesToDelete = Nodes.Where(n => n.Properties.TryGetValue("label", out var nodeLabel) && nodeLabel.ToString() == label).ToList();
+                if (!nodesToDelete.Any()) return ApiResponse<object>.ErrorResponse($"No nodes with label {label} exist.");
             }
 
-            Edges.RemoveAll(e => deletionCriteria(Nodes.FirstOrDefault(n => n.Id == e.FromId)) || deletionCriteria(Nodes.FirstOrDefault(n => n.Id == e.ToId)));
-            var removed = Nodes.RemoveAll(deletionCriteria) > 0;
+            foreach (var node in nodesToDelete)
+            {
+                // Remove the node from its index
+                if (node.Properties.ContainsKey("id"))
+                {
+                    var idValue = node.Properties["id"].ToString();
+                    if (nodeIndex.ContainsKey(idValue))
+                    {
+                        nodeIndex[idValue].Remove(node);
+                    }
+                }
 
-            if (removed)
-            {
-                SaveToFile();
-                return ApiResponse<object>.SuccessResponse(null, label == null ? $"Node {nodeIdOrLabel} and all its relationships have been deleted." : $"Nodes with label {label} and all their relationships have been deleted.");
+                // Detach and delete all connected edges
+                var connectedEdges = Edges.Where(e => e.FromId == node.Id || e.ToId == node.Id).ToList();
+                foreach (var edge in connectedEdges)
+                {
+                    // Remove the edge from its index
+                    if (edge.Properties.ContainsKey("type"))
+                    {
+                        var typeValue = edge.Properties["type"].ToString();
+                        if (edgeIndex.ContainsKey(typeValue))
+                        {
+                            edgeIndex[typeValue].Remove(edge);
+                        }
+                    }
+                    Edges.Remove(edge);
+                }
+
+                // Finally, remove the node
+                Nodes.Remove(node);
             }
-            else
-            {
-                return ApiResponse<object>.ErrorResponse(label == null ? $"Node {nodeIdOrLabel} does not exist." : $"No nodes with label {label} exist.");
-            }
+
+            SaveToFile(); // Save changes after all deletions
+            return ApiResponse<object>.SuccessResponse(null, label == null ? $"Node {nodeIdOrLabel} and all its relationships have been deleted." : $"Nodes with label {label} and all their relationships have been deleted.");
         }
+
 
 
 
@@ -368,16 +437,75 @@ namespace GraphDB
             string toNodeId = match.Groups[2].Value;
             string relationshipType = match.Groups[3].Value;
 
-            var removed = Edges.RemoveAll(e => e.FromId == fromNodeId && e.ToId == toNodeId && e.RelationshipType == relationshipType) > 0;
-
-            if (removed)
-            {
-                SaveToFile();
-                return ApiResponse<object>.SuccessResponse(null, $"Relationship {relationshipType} from {fromNodeId} to {toNodeId} has been deleted.");
-            }
-            else
+            // Find the specific edge to remove
+            var edgeToRemove = Edges.FirstOrDefault(e => e.FromId == fromNodeId && e.ToId == toNodeId && e.RelationshipType == relationshipType);
+            if (edgeToRemove == null)
             {
                 return ApiResponse<object>.ErrorResponse($"Relationship {relationshipType} from {fromNodeId} to {toNodeId} does not exist.");
+            }
+
+            // Remove the edge from the edge index if necessary
+            if (edgeToRemove.Properties.ContainsKey("type"))
+            {
+                var typeValue = edgeToRemove.Properties["type"].ToString();
+                if (edgeIndex.ContainsKey(typeValue))
+                {
+                    edgeIndex[typeValue].Remove(edgeToRemove);
+                    if (edgeIndex[typeValue].Count == 0)
+                    {
+                        edgeIndex.Remove(typeValue); // Remove the entry from the index if no more edges of this type exist
+                    }
+                }
+            }
+
+            // Remove the edge from the Edges list
+            Edges.Remove(edgeToRemove);
+
+            SaveToFile(); // Save changes after the deletion
+            return ApiResponse<object>.SuccessResponse(null, $"Relationship {relationshipType} from {fromNodeId} to {toNodeId} has been deleted.");
+        }
+
+        // Method to update a node's property and adjust the index accordingly
+        public void UpdateNodeProperty(string nodeId, string propertyName, object propertyValue)
+        {
+            var node = Nodes.FirstOrDefault(n => n.Id == nodeId);
+            if (node != null && propertyName == "id") // Assuming we're indexing nodes by 'id'
+            {
+                // Remove from old index entry if necessary
+                if (node.Properties.ContainsKey(propertyName))
+                {
+                    var oldPropertyValue = node.Properties[propertyName].ToString();
+                    nodeIndex[oldPropertyValue].Remove(node);
+                }
+
+                // Update the node's property
+                node.Properties[propertyName] = propertyValue.ToString();
+
+                // Add to new index entry
+                UpdateNodeIndex(node);
+                SaveToFile();
+            }
+        }
+
+        // Method to update an edge's property and adjust the index accordingly
+        public void UpdateEdgeProperty(string fromId, string toId, string relationshipType, string propertyName, object propertyValue)
+        {
+            var edge = Edges.FirstOrDefault(e => e.FromId == fromId && e.ToId == toId && e.RelationshipType == relationshipType);
+            if (edge != null && propertyName == "type") // Assuming we're indexing edges by 'type'
+            {
+                // Remove from old index entry if necessary
+                if (edge.Properties.ContainsKey(propertyName))
+                {
+                    var oldPropertyValue = edge.Properties[propertyName].ToString();
+                    edgeIndex[oldPropertyValue].Remove(edge);
+                }
+
+                // Update the edge's property
+                edge.Properties[propertyName] = propertyValue.ToString();
+
+                // Add to new index entry
+                UpdateEdgeIndex(edge);
+                SaveToFile();
             }
         }
 
@@ -400,12 +528,24 @@ namespace GraphDB
             string propertyName = match.Groups[6].Value;
             string propertyValue = match.Groups[7].Value;
 
-            // Filtering edges based on the relationship type, property value, and weight conditions
-            var filteredEdges = Edges.Where(edge =>
-                edge.RelationshipType == relationshipType &&
-                edge.Properties.TryGetValue(propertyName, out var value) && value.ToString() == propertyValue &&
-                CheckWeightCondition(edge.Weight, weightComparison, weightValue)
-            ).ToList();
+            // Utilize indexing for improved query performance
+            IEnumerable<Edge> potentialEdges;
+            if (propertyName.Equals("type", StringComparison.OrdinalIgnoreCase) && edgeIndex.ContainsKey(propertyValue))
+            {
+                potentialEdges = edgeIndex[propertyValue];
+            }
+            else
+            {
+                // Fallback to scanning all edges if not querying by the indexed property or if the property value is not indexed
+                potentialEdges = Edges;
+            }
+
+            // Filter edges based on the detailed criteria
+            var filteredEdges = potentialEdges
+                .Where(edge => edge.RelationshipType == relationshipType &&
+                               CheckWeightCondition(edge.Weight, weightComparison, weightValue) &&
+                               edge.Properties.TryGetValue(propertyName, out var value) && value.ToString() == propertyValue)
+                .ToList();
 
             if (filteredEdges.Any())
             {
@@ -430,10 +570,13 @@ namespace GraphDB
             {
                 case ">": return edgeWeight > weightValue;
                 case "<": return edgeWeight < weightValue;
-                case "=": return edgeWeight == weightValue;
+                case "=": return Math.Abs(edgeWeight - weightValue) < 0.001; // Use a tolerance for floating point comparison
                 default: throw new ArgumentException("Invalid weight comparison operator.");
             }
         }
+
+
+
 
         //private string FormatRelationships(List<Edge> edges)
         //{
@@ -479,10 +622,28 @@ namespace GraphDB
                 return ApiResponse<RelationshipResponse>.ErrorResponse("Relationship does not exist.");
             }
 
+            // Track if any indexed property is updated to determine if re-indexing is necessary
+            bool needsReindexing = false;
+
             // Update properties
             foreach (var prop in properties)
             {
-                edge.Properties[prop.Key] = prop.Value;
+                if (edge.Properties.ContainsKey(prop.Key) && edge.Properties[prop.Key] != prop.Value)
+                {
+                    needsReindexing = needsReindexing || IsIndexedProperty(prop.Key);
+                    edge.Properties[prop.Key] = prop.Value;
+                }
+                else if (!edge.Properties.ContainsKey(prop.Key))
+                {
+                    needsReindexing = needsReindexing || IsIndexedProperty(prop.Key);
+                    edge.Properties.Add(prop.Key, prop.Value);
+                }
+            }
+
+            if (needsReindexing)
+            {
+                // If an indexed property was updated, re-index this edge
+                UpdateEdgeIndex(edge); // Assuming UpdateEdgeIndex handles adding/updating the index entry
             }
 
             SaveToFile();
@@ -498,6 +659,13 @@ namespace GraphDB
             return ApiResponse<RelationshipResponse>.SuccessResponse(relationshipResponse, $"Updated properties of relationship from {fromId} to {toId}.");
         }
 
+        private bool IsIndexedProperty(string propertyName)
+        {
+            // Here, define logic to determine if a property is indexed
+            // For example, if indexing edges by 'type', then:
+            return propertyName.Equals("type", StringComparison.OrdinalIgnoreCase);
+            // Extend this logic based on actual indexed properties
+        }
 
 
 
@@ -518,14 +686,17 @@ namespace GraphDB
                 return $"Node {nodeId} does not exist.";
             }
 
+            // Determine if the property update requires re-indexing
+            bool needsReindexing = node.Properties.ContainsKey(propertyName) && !node.Properties[propertyName].Equals(propertyValue);
+            needsReindexing = needsReindexing || IsIndexedProperty(propertyName);
+
             // Set or update the property value
-            if (node.Properties.ContainsKey(propertyName))
+            node.Properties[propertyName] = propertyValue;
+
+            if (needsReindexing)
             {
-                node.Properties[propertyName] = propertyValue;
-            }
-            else
-            {
-                node.Properties.Add(propertyName, propertyValue);
+                // Update the index if necessary
+                UpdateNodeIndex(node); // Ensure this method handles both adding new and updating existing index entries
             }
 
             SaveToFile(); // Assuming you have a method to save changes to the graph
@@ -534,7 +705,7 @@ namespace GraphDB
 
 
 
-       
+
 
         private Dictionary<string, object> ParseProperties(string propertiesString)
         {
@@ -553,20 +724,46 @@ namespace GraphDB
             SaveToFile();
         }
 
-        public List<Node> QueryNodesByProperty(string propertyName, object value)
+        //public List<Node> QueryNodesByProperty(string propertyName, object value)
+        //{
+        //    return Nodes.Where(n => n.Properties.ContainsKey(propertyName) && n.Properties[propertyName].Equals(value)).ToList();
+        //}
+
+        public List<Node> QueryNodesByProperty(string propertyName, string propertyValue)
         {
-            return Nodes.Where(n => n.Properties.ContainsKey(propertyName) && n.Properties[propertyName].Equals(value)).ToList();
+            // Use the index for direct access if querying by the indexed property
+            if (propertyName == "id" && nodeIndex.ContainsKey(propertyValue))
+            {
+                return nodeIndex[propertyValue];
+            }
+            else
+            {
+                // Fallback to scanning all nodes if not querying by the indexed property
+                return Nodes.Where(n => n.Properties.ContainsKey(propertyName) && n.Properties[propertyName].ToString() == propertyValue).ToList();
+            }
         }
 
-        public List<Edge> QueryEdgesByProperty(string propertyName, object value)
-        {
-            return Edges.Where(e => e.Properties.ContainsKey(propertyName) && e.Properties[propertyName].Equals(value)).ToList();
-        }
+        //public List<Edge> QueryEdgesByProperty(string propertyName, object value)
+        //{
+        //    return Edges.Where(e => e.Properties.ContainsKey(propertyName) && e.Properties[propertyName].Equals(value)).ToList();
+        //}
 
+        public List<Edge> QueryEdgesByProperty(string propertyName, string propertyValue)
+        {
+            // Directly access the index if querying by the indexed property (e.g., 'type')
+            if (propertyName == "type" && edgeIndex.ContainsKey(propertyValue))
+            {
+                return edgeIndex[propertyValue];
+            }
+            else
+            {
+                // Fallback to scanning all edges if not querying by the indexed property
+                return Edges.Where(e => e.Properties.ContainsKey(propertyName) && e.Properties[propertyName].ToString() == propertyValue).ToList();
+            }
+        }
 
         public ApiResponse<List<NodeResponse>> HandleFindNeighbors(string cypher)
         {
-            var response = new ApiResponse<List<NodeResponse>>();
             var pattern = new Regex(@"FIND NEIGHBORS \(id:\s*'([^']*)'(?:,\s*label:\s*'([^']*)')?\)", RegexOptions.IgnoreCase);
             var match = pattern.Match(cypher);
 
@@ -596,31 +793,32 @@ namespace GraphDB
             }
         }
 
-
-        // Find all neighbors of a specific node
+        // Adjusted FindNeighbors method to correctly reference node IDs in edge relationships
         public List<Node> FindNeighbors(string nodeId, string label = null)
         {
             var neighbors = new List<Node>();
 
-            // Add nodes that are at the end of an outgoing edge from the given node
-            var outgoingNeighbors = Edges
-                .Where(e => e.From.Id == nodeId)
-                .Select(e => e.To)
-                .Where(n => label == null || n.Label == label)
-                .ToList();
+            // Adjusted to correctly use node IDs for finding edges
+            var outgoingNeighborsIds = Edges
+                .Where(e => e.FromId == nodeId)
+                .Select(e => e.ToId);
 
-            neighbors.AddRange(outgoingNeighbors);
+            var incomingNeighborsIds = Edges
+                .Where(e => e.ToId == nodeId)
+                .Select(e => e.FromId);
 
-            // Add nodes that are at the start of an incoming edge to the given node
-            var incomingNeighbors = Edges
-                .Where(e => e.To.Id == nodeId)
-                .Select(e => e.From)
-                .Where(n => label == null || n.Label == label)
-                .ToList();
+            var allNeighborIds = outgoingNeighborsIds.Concat(incomingNeighborsIds).Distinct();
 
-            neighbors.AddRange(incomingNeighbors);
+            foreach (var neighborId in allNeighborIds)
+            {
+                var neighbor = Nodes.FirstOrDefault(n => n.Id == neighborId && (label == null || n.Label == label));
+                if (neighbor != null)
+                {
+                    neighbors.Add(neighbor);
+                }
+            }
 
-            return neighbors.Distinct().ToList(); // Remove duplicates and return
+            return neighbors; // Distinct is already ensured by the Concat and FirstOrDefault operations
         }
 
 
@@ -628,40 +826,48 @@ namespace GraphDB
         {
             try
             {
-
                 var pattern = new Regex(@"CREATE \((\w+):(\w+) \{(.+)\}\)", RegexOptions.IgnoreCase);
                 var match = pattern.Match(cypher);
-                if (!match.Success) return  ApiResponse<NodeResponse>.ErrorResponse($"Invalid CREATE syntax for node.");
+                if (!match.Success) return ApiResponse<NodeResponse>.ErrorResponse("Invalid CREATE syntax for node.");
 
                 string nodeId = match.Groups[1].Value;
-                string label = match.Groups[2].Value; // This example uses label, which you may or may not need.
-                var properties = ParseProperties(match.Groups[3].Value);
+                string label = match.Groups[2].Value; // Assuming the label might be used for indexing or queries.
+                var propertiesString = match.Groups[3].Value;
+                var properties = ParseProperties(propertiesString);
 
+                // Check if the node already exists.
                 if (Nodes.Any(n => n.Id == nodeId))
                 {
                     return ApiResponse<NodeResponse>.ErrorResponse($"Node with id {nodeId} already exists.");
                 }
 
-                var newNode = new Node { Id = nodeId, Properties = properties };
+                // Create and add the new node.
+                var newNode = new Node { Id = nodeId, Label = label, Properties = properties };
                 Nodes.Add(newNode);
-                SaveToFile();
 
-                // Return a NodeResponse instead of a string
+                // Update indexes with the new node. This method should handle both the primary index (e.g., on ID) and any secondary indexes you've implemented.
+                UpdateNodeIndex(newNode);
+
+                SaveToFile(); // Save changes to the database.
+
+                // Return a success response with the created node details.
                 var nodeResponse = new NodeResponse
                 {
                     Id = newNode.Id,
                     Label = newNode.Label,
                     Properties = newNode.Properties
                 };
-                    return ApiResponse<NodeResponse>.SuccessResponse(nodeResponse, "Node created successfully.");
-                    }
+                return ApiResponse<NodeResponse>.SuccessResponse(nodeResponse, "Node created successfully.");
+            }
             catch (Exception ex)
             {
-                // Return error response
+                // Handle any exceptions during the node creation process and return an error response.
                 return ApiResponse<NodeResponse>.ErrorResponse($"Error creating node: {ex.Message}");
             }
-
         }
+
+      
+
 
         private string HandleMergeNode(string cypher)
         {
@@ -670,36 +876,45 @@ namespace GraphDB
             if (!match.Success) return "Invalid MERGE syntax for node.";
 
             string nodeId = match.Groups[1].Value;
-            string label = match.Groups[2].Value; // As before, the use of label depends on your implementation.
-            var properties = ParseProperties(match.Groups[3].Value);
+            string label = match.Groups[2].Value; // The label might be useful for certain types of queries or indexes.
+            var propertiesString = match.Groups[3].Value;
+            var properties = ParseProperties(propertiesString);
 
+            var nodeExists = Nodes.Any(n => n.Id == nodeId);
             var node = Nodes.FirstOrDefault(n => n.Id == nodeId);
+            bool needsIndexUpdate = false;
+
             if (node == null)
             {
-                node = new Node { Id = nodeId, Properties = properties };
+                // Node creation
+                node = new Node { Id = nodeId, Label = label, Properties = properties };
                 Nodes.Add(node);
-                SaveToFile();
-                return $"Node {nodeId} merged (created) successfully.";
             }
             else
             {
-                // Update existing node properties with new values from MERGE command
+                // Node update - determine if properties being set impact indexed fields
                 foreach (var prop in properties)
                 {
-                    if (node.Properties.ContainsKey(prop.Key))
+                    var oldValue = node.Properties.ContainsKey(prop.Key) ? node.Properties[prop.Key] : null;
+                    var newValue = prop.Value;
+
+                    if (!Equals(oldValue, newValue))
                     {
-                        node.Properties[prop.Key] = prop.Value;
-                    }
-                    else
-                    {
-                        node.Properties.Add(prop.Key, prop.Value);
+                        needsIndexUpdate = needsIndexUpdate || IsIndexedProperty(prop.Key);
+                        node.Properties[prop.Key] = newValue;
                     }
                 }
-                SaveToFile();
-                return $"Node {nodeId} merged (updated) successfully.";
             }
-        }
 
+            // Update indexes if necessary, particularly after creation or if indexed properties were modified
+            if (!nodeExists || needsIndexUpdate)
+            {
+                UpdateNodeIndex(node);
+            }
+
+            SaveToFile();
+            return nodeExists ? $"Node {nodeId} merged (updated) successfully." : $"Node {nodeId} merged (created) successfully.";
+        }
 
         // IF CONDITION [condition] THEN [action] ELSE [alternative action]
         // Where [condition] is a simple expression (e.g., "node exists"), [action] and [alternative action]
@@ -709,7 +924,7 @@ namespace GraphDB
 
         private string HandleConditional(string cypher)
         {
-            // For demonstration, let's parse a simplified IF CONDITION statement
+            // Parsing the conditional syntax with expanded capability
             var match = Regex.Match(cypher, @"IF CONDITION\s+\[(.*?)\]\s+THEN\s+\[(.*?)\]\s+ELSE\s+\[(.*?)\]", RegexOptions.IgnoreCase);
             if (!match.Success)
             {
@@ -720,15 +935,18 @@ namespace GraphDB
             var action = match.Groups[2].Value.Trim();
             var alternativeAction = match.Groups[3].Value.Trim();
 
-            // Example condition check (you'll need to implement actual logic here)
-            if (condition == "node exists")
+            // Evaluate the condition
+            bool conditionResult = EvaluateCondition(condition);
+
+            // Depending on the condition's evaluation, execute the corresponding action
+            if (conditionResult)
             {
-                // Execute the action if the condition is met
+                // Condition is true, execute the action
                 return ExecuteCypherCommand(action);
             }
             else
             {
-                // Execute the alternative action if the condition is not met
+                // Condition is false, execute the alternative action
                 return ExecuteCypherCommand(alternativeAction);
             }
         }
@@ -868,7 +1086,7 @@ namespace GraphDB
 
         public bool EvaluateCondition(string condition)
         {
-            // Example: "Node(123).exists"
+            // Checking if a node exists
             var nodeExistsRegex = new Regex(@"Node\((\d+)\)\.exists");
             var match = nodeExistsRegex.Match(condition);
             if (match.Success)
@@ -877,8 +1095,8 @@ namespace GraphDB
                 return CheckNodeExists(nodeId);
             }
 
-            // Example: "Node(123).property['name'] == 'Alice'"
-            var propertyCheckRegex = new Regex(@"Node\((\d+)\)\.property\['(\w+)'\] == '(\w+)'");
+            // Checking if a node property matches a specific value
+            var propertyCheckRegex = new Regex(@"Node\((\d+)\)\.property\['(\w+)'\] == '([^']*)'");
             match = propertyCheckRegex.Match(condition);
             if (match.Success)
             {
@@ -888,27 +1106,71 @@ namespace GraphDB
                 return CheckNodeProperty(nodeId, propertyName, propertyValue);
             }
 
+            // Checking if an edge exists between two nodes
+            var edgeExistsRegex = new Regex(@"Edge\((\d+), (\d+)\)\.exists");
+            match = edgeExistsRegex.Match(condition);
+            if (match.Success)
+            {
+                var fromNodeId = match.Groups[1].Value;
+                var toNodeId = match.Groups[2].Value;
+                return CheckEdgeExists(fromNodeId, toNodeId);
+            }
+
+            // Example for numeric property comparison
+            var numericPropertyCheckRegex = new Regex(@"Node\((\d+)\)\.property\['(\w+)'\] ([><=]+) (\d+)");
+            match = numericPropertyCheckRegex.Match(condition);
+            if (match.Success)
+            {
+                var nodeId = match.Groups[1].Value;
+                var propertyName = match.Groups[2].Value;
+                var operatorSymbol = match.Groups[3].Value;
+                var valueToCompare = int.Parse(match.Groups[4].Value);
+                return CheckNumericNodeProperty(nodeId, propertyName, operatorSymbol, valueToCompare);
+            }
+
             Console.WriteLine("Condition not recognised or supported.");
             return false;
         }
 
-        // Checks if a node with the specified ID exists in the graph
-        public bool CheckNodeExists(string nodeId)
+        private bool CheckNodeExists(string nodeId)
         {
             return Nodes.Any(n => n.Id == nodeId);
         }
 
-        // Checks if a node with the specified ID has a property with a specific value
-        public bool CheckNodeProperty(string nodeId, string propertyName, object propertyValue)
+        private bool CheckNodeProperty(string nodeId, string propertyName, string propertyValue)
         {
             var node = Nodes.FirstOrDefault(n => n.Id == nodeId);
             if (node != null && node.Properties.TryGetValue(propertyName, out var value))
             {
-                // Assuming you want to compare the values as strings
-                return value.ToString() == propertyValue.ToString();
+                return value.ToString() == propertyValue;
             }
             return false;
         }
+
+        private bool CheckEdgeExists(string fromNodeId, string toNodeId)
+        {
+            return Edges.Any(e => e.FromId == fromNodeId && e.ToId == toNodeId);
+        }
+
+        private bool CheckNumericNodeProperty(string nodeId, string propertyName, string operatorSymbol, int valueToCompare)
+        {
+            var node = Nodes.FirstOrDefault(n => n.Id == nodeId);
+            if (node != null && node.Properties.TryGetValue(propertyName, out var value))
+            {
+                int nodePropertyValue = Convert.ToInt32(value);
+                switch (operatorSymbol)
+                {
+                    case ">": return nodePropertyValue > valueToCompare;
+                    case "<": return nodePropertyValue < valueToCompare;
+                    case "=": return nodePropertyValue == valueToCompare;
+                    default: return false;
+                }
+            }
+            return false;
+        }
+
+
+
 
         private string HandleMatchPattern(string cypher)
         {
@@ -920,9 +1182,21 @@ namespace GraphDB
             string propertyName = match.Groups[3].Value;
             string propertyValue = match.Groups[4].Value;
 
-            var matchingRelationships = Edges.Where(e => e.RelationshipType == relationshipType && e.Properties.ContainsKey(propertyName) && e.Properties[propertyName].ToString() == propertyValue).ToList();
+            // Potentially leverage indexing here if relationships are indexed by type and/or properties
+            var matchingRelationships = Edges
+                .Where(e => e.RelationshipType.Equals(relationshipType, StringComparison.OrdinalIgnoreCase) &&
+                            e.Properties.TryGetValue(propertyName, out var value) &&
+                            value.ToString().Equals(propertyValue, StringComparison.OrdinalIgnoreCase))
+                .ToList();
 
-            return $"Found {matchingRelationships.Count} relationships of type {relationshipType} matching {propertyName} = {propertyValue}.";
+            // Building a detailed response
+            var response = new StringBuilder($"Found {matchingRelationships.Count} relationships of type '{relationshipType}' matching {propertyName} = '{propertyValue}':");
+            foreach (var rel in matchingRelationships)
+            {
+                response.AppendLine($"\nFrom Node ID: {rel.FromId}, To Node ID: {rel.ToId}");
+            }
+
+            return response.ToString();
         }
 
         private string HandleMatchNode(string cypher)
@@ -931,38 +1205,84 @@ namespace GraphDB
             var match = pattern.Match(cypher);
             if (!match.Success) return "Invalid MATCH syntax for node.";
 
-            string label = match.Groups[2].Value; // Example uses label, which you may or may not need.
+            string label = match.Groups[2].Value; // Assuming label might be used for querying
             string propertyName = match.Groups[3].Value;
             string propertyValue = match.Groups[4].Value;
 
-            var matchingNodes = Nodes.Where(n => n.Properties.ContainsKey(propertyName) && n.Properties[propertyName].ToString() == propertyValue).ToList();
+            // Leverage indexing for nodes if applicable, especially if nodes are indexed by labels or properties
+            var matchingNodes = Nodes
+                .Where(n => (string.IsNullOrEmpty(label) || n.Label.Equals(label, StringComparison.OrdinalIgnoreCase)) &&
+                            n.Properties.TryGetValue(propertyName, out var value) &&
+                            value.ToString().Equals(propertyValue, StringComparison.OrdinalIgnoreCase))
+                .ToList();
 
-            return $"Found {matchingNodes.Count} nodes matching {propertyName} = {propertyValue}.";
+            // Constructing a detailed response
+            var response = new StringBuilder($"Found {matchingNodes.Count} nodes matching {propertyName} = '{propertyValue}':");
+            foreach (var node in matchingNodes)
+            {
+                response.AppendLine($"\nNode ID: {node.Id}, Label: {node.Label}");
+            }
+
+            return response.ToString();
         }
 
 
-       
+
+
 
         public List<(Node, Node)> MatchPattern(Func<Node, bool> startCondition, string relationshipType, Func<Node, bool> endCondition)
         {
-            var matches = new List<(Node, Node)>();
-            foreach (var edge in Edges.Where(e => e.Relationship.Equals(relationshipType, StringComparison.OrdinalIgnoreCase)))
-            {
-                var fromNode = Nodes.FirstOrDefault(n => n.Id == edge.FromId);
-                var toNode = Nodes.FirstOrDefault(n => n.Id == edge.ToId);
-                if (fromNode != null && toNode != null && startCondition(fromNode) && endCondition(toNode))
-                {
-                    matches.Add((fromNode, toNode));
-                }
-            }
+            // Assuming Nodes is a List, consider converting it to a Dictionary for faster lookups if not already done.
+            // This approach assumes an indexed or dictionary-based access method for Nodes for optimal performance.
+            var nodeLookup = Nodes.ToDictionary(n => n.Id, n => n);
+
+            var matches = Edges
+                .Where(e => e.RelationshipType.Equals(relationshipType, StringComparison.OrdinalIgnoreCase))
+                .Select(e => (FromNode: nodeLookup.TryGetValue(e.FromId, out var fromNode) ? fromNode : null,
+                              ToNode: nodeLookup.TryGetValue(e.ToId, out var toNode) ? toNode : null))
+                .Where(pair => pair.FromNode != null && pair.ToNode != null)
+                .Where(pair => startCondition(pair.FromNode) && endCondition(pair.ToNode))
+                .ToList();
+
             return matches;
         }
 
-   
+
+        // Method to update node index
+        private void UpdateNodeIndex(Node node)
+        {
+            // Assuming 'id' is the property we're indexing on for simplicity
+            if (node.Properties.ContainsKey("id"))
+            {
+                var id = node.Properties["id"].ToString();
+                if (!nodeIndex.ContainsKey(id))
+                {
+                    nodeIndex[id] = new List<Node>();
+                }
+                nodeIndex[id].Add(node);
+            }
+        }
+
+        // Method to update edge index
+        private void UpdateEdgeIndex(Edge edge)
+        {
+            // Example: Indexing on 'type' property
+            if (edge.Properties.ContainsKey("type"))
+            {
+                var type = edge.Properties["type"].ToString();
+                if (!edgeIndex.ContainsKey(type))
+                {
+                    edgeIndex[type] = new List<Edge>();
+                }
+                edgeIndex[type].Add(edge);
+            }
+        }
+
+      
 
 
 
-            public (bool Success, List<string> Path, double Cost, string ErrorMessage) FindPathBellmanFord(string startId, string endId)
+        public (bool Success, List<string> Path, double Cost, string ErrorMessage) FindPathBellmanFord(string startId, string endId)
             {
                 var distances = new Dictionary<string, double>();
                 var predecessors = new Dictionary<string, string>();
@@ -1059,31 +1379,43 @@ namespace GraphDB
         {
             try
             {
+                int addedCount = 0, duplicateCount = 0;
+                var existingNodeIds = new HashSet<string>(Nodes.Select(n => n.Id));
+
                 using (var reader = new StreamReader(filePath))
                 using (var csv = new CsvReader(reader, CultureInfo.InvariantCulture))
                 {
                     csv.Context.RegisterClassMap<NodeMap>(); // Register mapping configuration
-                    var records = csv.GetRecords<Node>().ToList();
+                    var records = csv.GetRecords<Node>();
+
                     foreach (var record in records)
                     {
-                        if (!Nodes.Any(n => n.Id == record.Id))
+                        // Check for duplicates using a HashSet for efficient lookup
+                        if (!existingNodeIds.Contains(record.Id))
                         {
                             Nodes.Add(record);
+                            existingNodeIds.Add(record.Id); // Update the hash set with the new ID
+                            addedCount++;
                         }
                         else
                         {
-                            // Handle duplicate node ID situation, if necessary
+                            duplicateCount++;
+                            // Optionally handle duplicates, e.g., log or update existing records
                         }
                     }
                 }
+
                 SaveToFile(); // Save changes to your data store
-                return "Nodes imported from CSV successfully.";
+
+                // Provide detailed feedback on the import process
+                return $"{addedCount} nodes imported successfully. {duplicateCount} duplicates found and ignored.";
             }
             catch (Exception ex)
             {
                 return $"Failed to import nodes: {ex.Message}";
             }
         }
+
 
 
         // Define a CsvHelper class map to handle the custom mapping
@@ -1104,18 +1436,33 @@ namespace GraphDB
         {
             try
             {
+                int addedCount = 0, duplicateCount = 0;
+                // Define a way to check for duplicates. This example assumes edges are uniquely identified by FromId, ToId, and RelationshipType.
+                var existingEdges = new HashSet<string>(Edges.Select(e => $"{e.FromId}-{e.ToId}-{e.RelationshipType}"));
+
                 using (var reader = new StreamReader(filePath))
                 using (var csv = new CsvReader(reader, CultureInfo.InvariantCulture))
                 {
-                    var records = csv.GetRecords<Edge>().ToList();
+                    var records = csv.GetRecords<Edge>();
+
                     foreach (var record in records)
                     {
-                        // Add logic to avoid duplicate edges if necessary
-                        Edges.Add(record);
+                        string edgeKey = $"{record.FromId}-{record.ToId}-{record.RelationshipType}";
+                        if (!existingEdges.Contains(edgeKey))
+                        {
+                            Edges.Add(record);
+                            existingEdges.Add(edgeKey); // Update the set with the new edge identifier
+                            addedCount++;
+                        }
+                        else
+                        {
+                            duplicateCount++;
+                        }
                     }
                 }
+
                 SaveToFile(); // Save changes
-                return "Edges imported from CSV successfully.";
+                return $"{addedCount} edges imported successfully. {duplicateCount} duplicates found and ignored.";
             }
             catch (Exception ex)
             {
@@ -1124,65 +1471,63 @@ namespace GraphDB
         }
 
 
-        private string HandleImportJSON(string cypher)
-        {
-            // Example Cypher: IMPORT CSV 'filePath.csv' AS NODES|EDGES
-            var pattern = new Regex(@"IMPORT JSON '([^']+)'", RegexOptions.IgnoreCase);
-            var match = pattern.Match(cypher);
-            if (!match.Success) return "Invalid syntax for IMPORT JSON.";
 
-            string filePath = match.Groups[1].Value;
-            
-            return ImportJSON(filePath);
-        }
-
-
-//  {
-//  "nodes": [
-//    {"id": "1", "label": "Person", "properties": {"name": "Alice"}
-//},
-//    { "id": "2", "label": "Person", "properties": { "name": "Bob"} }
-//  ],
-//  "edges": [
-//    {"fromId": "1", "toId": "2", "relationshipType": "KNOWS", "properties": {"since": "2022"}}
-//  ]
-//}
-
-        private string ImportJSON(string filePath)
+        private string HandleImportJSON(string filePath)
         {
             try
             {
                 var jsonData = File.ReadAllText(filePath);
                 var graphData = JsonConvert.DeserializeObject<GraphData>(jsonData);
 
-                if (graphData?.Nodes != null)
+                if (graphData == null) throw new InvalidOperationException("Unable to parse JSON data.");
+
+                int nodesAdded = 0, edgesAdded = 0;
+                if (graphData.Nodes != null)
                 {
-                    foreach (var nodeData in graphData.Nodes)
+                    foreach (var node in graphData.Nodes)
                     {
-                        AddNode(new Node
+                        // Assuming Nodes list is unique by Id; adjust based on actual constraints
+                        if (!Nodes.Any(n => n.Id == node.Id))
                         {
-                            Id = nodeData.Id,
-                            Label = nodeData.Label,
-                            Properties = nodeData.Properties
-                        });
+                            Nodes.Add(node);
+                            nodesAdded++;
+                        }
                     }
                 }
 
-                if (graphData?.Edges != null)
+                if (graphData.Edges != null)
                 {
-                    foreach (var edgeData in graphData.Edges)
+                    foreach (var edge in graphData.Edges)
                     {
-                        AddEdge(edgeData.FromId, edgeData.ToId, edgeData.Weight, edgeData.RelationshipType, edgeData.Properties);
+                        // Assuming Edges list does not strictly enforce uniqueness; adjust as necessary
+                        Edges.Add(edge);
+                        edgesAdded++;
                     }
                 }
+
                 SaveToFile(); // Save changes
-                return "JSON imported from CSV successfully.";
+                return $"{nodesAdded} nodes and {edgesAdded} edges imported successfully from JSON.";
             }
             catch (Exception ex)
             {
-                return $"Failed to import edges: {ex.Message}";
+                return $"Failed to import from JSON: {ex.Message}";
             }
         }
+
+
+
+        //  {
+        //  "nodes": [
+        //    {"id": "1", "label": "Person", "properties": {"name": "Alice"}
+        //},
+        //    { "id": "2", "label": "Person", "properties": { "name": "Bob"} }
+        //  ],
+        //  "edges": [
+        //    {"fromId": "1", "toId": "2", "relationshipType": "KNOWS", "properties": {"since": "2022"}}
+        //  ]
+        //}
+
+        
 
         private string HandleExportCsvNodes(string cypher)
         {
@@ -1251,30 +1596,59 @@ namespace GraphDB
         public String CreateDatabase()
         {
             isDatabaseLoaded = false;
+            // Validate the graph name to ensure it's provided and conforms to any naming conventions you may have.
             if (string.IsNullOrWhiteSpace(_graphName))
             {
                 return "Database name must be provided.";
             }
-            else if (File.Exists(_graphPath))
+
+            // Construct the full path to where the database file would be saved, using a standardized method if available.
+            // This example directly uses _graphPath, assuming it's correctly set based on _graphName.
+            _graphPath = ConstructGraphPath(_graphName);
+
+            if (File.Exists(_graphPath))
             {
-                return $"Database ({_graphPath}) already exists.";
+                return $"Database '{_graphName}' already exists at '{_graphPath}'.";
             }
             else
             {
                 try
                 {
+                    // Initialize the lists to ensure the database starts empty.
                     Nodes = new List<Node>();
                     Edges = new List<Edge>();
+
+                    // Call a method to actually save/create the database file.
                     SaveToFile();
+
                     isDatabaseLoaded = true;
-                    return $"Graph '{_graphName}' created and saved.";
+                    return $"Graph '{_graphName}' created and saved successfully at '{_graphPath}'.";
                 }
                 catch (Exception ex)
                 {
-                    return $"Failed to create database ({_graphName})";
+                    // Log the exception details to help with debugging if needed.
+                    LogException(ex);
+                    return $"Failed to create the database '{_graphName}': {ex.Message}";
                 }
             }
         }
+
+        private string ConstructGraphPath(string graphName)
+        {
+            // Assuming DefaultFilePath is a base directory where databases are stored.
+            // Adjust the logic here if your path construction is more complex.
+            return Path.Combine(DefaultFilePath, $"{graphName}.json");
+        }
+
+        private void LogException(Exception ex)
+        {
+            // Implement logging according to your application's logging strategy.
+            // This could be as simple as writing to a console or as complex as using a logging framework.
+            Console.WriteLine($"Error: {ex.Message}\n{ex.StackTrace}");
+        }
+
+      
+
 
         public void SaveToFile()
         {
@@ -1307,39 +1681,61 @@ namespace GraphDB
 
 
         public void LoadGraph()
+        {
+            isDatabaseLoaded = false;
+            if (!File.Exists(_graphPath))
             {
-                isDatabaseLoaded = false;
-                if (!File.Exists(_graphPath))
-                {
-                    Console.WriteLine("Graph file does not exist, initializing a new graph.");
-                    return;
-                }
-
-                try
-                {
-                    var json = File.ReadAllText(_graphPath);
-                    var graphData = JsonConvert.DeserializeObject<GraphData>(json);
-
-                    this.Nodes = graphData.Nodes;
-                    this.Edges = graphData.Edges.Select(e =>
-                    {
-                        e.From = this.Nodes.FirstOrDefault(n => n.Id == e.FromId);
-                        e.To = this.Nodes.FirstOrDefault(n => n.Id == e.ToId);
-                        return e;
-                    }).ToList();
-                isDatabaseLoaded = true;
-                }
-                catch (JsonException ex)
-                {
-                    Console.Error.WriteLine($"Error parsing the graph file {_graphPath}: {ex.Message}");
-                }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine($"Failed to load the graph from {_graphPath}: {ex.Message}");
-                }
+                Console.WriteLine("Graph file does not exist. Initializing a new graph.");
+                // Initialize with empty collections to avoid null references.
+                Nodes = new List<Node>();
+                Edges = new List<Edge>();
+                return;
             }
 
+            try
+            {
+                var json = File.ReadAllText(_graphPath);
+                var graphData = JsonConvert.DeserializeObject<GraphData>(json);
+
+                if (graphData == null)
+                {
+                    Console.Error.WriteLine("Graph data is null after deserialization. Initializing an empty graph.");
+                    Nodes = new List<Node>();
+                    Edges = new List<Edge>();
+                }
+                else
+                {
+                    // Assuming GraphData contains Lists or other collections of Nodes and Edges.
+                    Nodes = graphData.Nodes ?? new List<Node>(); // Safeguard against null lists
+                    Edges = graphData.Edges ?? new List<Edge>();
+
+                    // Link nodes directly if needed. Assuming e.From and e.To are not used for serialization but for runtime convenience.
+                    foreach (var edge in Edges)
+                    {
+                        edge.From = Nodes.FirstOrDefault(n => n.Id == edge.FromId);
+                        edge.To = Nodes.FirstOrDefault(n => n.Id == edge.ToId);
+                    }
+                }
+
+                isDatabaseLoaded = true;
+                Console.WriteLine("Graph loaded successfully.");
+            }
+            catch (JsonException ex)
+            {
+                Console.Error.WriteLine($"Error parsing the graph file {_graphPath}: {ex.Message}");
+                // Initialize graph to avoid working with potentially partially loaded or inconsistent state.
+                Nodes = new List<Node>();
+                Edges = new List<Edge>();
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Failed to load the graph from {_graphPath}: {ex.Message}");
+                // Similar initialization to safeguard against inconsistent state.
+                Nodes = new List<Node>();
+                Edges = new List<Edge>();
+            }
         }
+    }
 
     }
 
