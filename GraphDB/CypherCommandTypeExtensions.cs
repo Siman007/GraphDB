@@ -10,6 +10,7 @@ namespace GraphDB
         MatchNode,
         MatchRelationship,
         DeleteNode,
+        DeleteEdge,
         DetachDeleteNode,
         DeleteRelationship,
         SetNodeProperty,
@@ -28,6 +29,7 @@ namespace GraphDB
         FindRelationships,
         FindNeighbors,
         MatchPattern,
+
         // Extend with other command types as necessary
     }
 
@@ -47,8 +49,10 @@ namespace GraphDB
                 return CypherCommandType.MatchRelationship;
             if (cypher.StartsWith("MATCH"))
                 return CypherCommandType.MatchNode;
-            if (cypher.StartsWith("DELETE"))
+            if (cypher.StartsWith("DELETE NODE"))
                 return CypherCommandType.DeleteNode;
+            if (cypher.StartsWith("DELETE EDGE"))
+                return CypherCommandType.DeleteEdge;
             if (cypher.StartsWith("DETACH DELETE"))
                 return CypherCommandType.DetachDeleteNode;
             if (cypher.StartsWith("SET") && cypher.Contains("NODE"))

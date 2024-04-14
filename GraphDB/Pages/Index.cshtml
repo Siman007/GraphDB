@@ -32,7 +32,7 @@
 
 <!-- Database Status Display -->
 <section class="database-status">
-    <p>@(Model.IsDatabaseLoaded ? $"Current database: @Model.CurrentDatabase" : "No database is currently loaded.")</p>
+    <p>@(Model.IsDatabaseLoaded ? $"Current database: {Model.CurrentDatabase}" : "No database is currently loaded.")</p>
 </section>
 
 <!-- Command Input Form -->

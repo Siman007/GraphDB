@@ -73,9 +73,7 @@ namespace GraphDB.Pages
             LoadCommandModelFromSession();
             if (string.IsNullOrWhiteSpace(command)) return;
 
-            if (!IsDatabaseLoaded && (command.StartsWith("create", System.StringComparison.OrdinalIgnoreCase) ||
-               command.StartsWith("load", System.StringComparison.OrdinalIgnoreCase) ||
-               command.StartsWith("delete", System.StringComparison.OrdinalIgnoreCase)))
+            if (!IsDatabaseLoaded && (HandleDatabaseManagementCommand(command)))
             {
                 HandleDatabaseManagementCommand(command);
             }
@@ -133,7 +131,7 @@ namespace GraphDB.Pages
 
         }
 
-        private void HandleDatabaseManagementCommand(string command)
+        private bool HandleDatabaseManagementCommand(string command)
         {
             var parts = command.Split(' ', 2);
             var action = parts[0].ToLower();
@@ -141,13 +139,13 @@ namespace GraphDB.Pages
 
             switch (action)
             {
-                case "create":
+                case "createdb":
                     CreateDatabase(parameter);
                     break;
-                case "load":
+                case "loaddb":
                     LoadDatabase(parameter);
                     break;
-                case "save":
+                case "savedb":
                     SaveDatabase();
                     break;
                 //case "close":
@@ -156,7 +154,12 @@ namespace GraphDB.Pages
                 //case "delete":
                 //    DeleteDatabase(parameter);
                 //    break;
+                default:
+                    return false;
+               
+
             }
+            return true;
         }
 
         private void CreateDatabase(string databaseName)
@@ -167,18 +170,27 @@ namespace GraphDB.Pages
           
             var graph = new Graph(databaseName);
 
-          
-            Command.History.Insert(0, new CommandResponse { Command = $"create {databaseName}", Response = graph.CreateDatabase()});
+
+            var createResponse = graph.CreateDatabase(); // Assuming CreateDatabase returns some response indicating success/failure
+
+            IsDatabaseLoaded = false;
             if (graph.GetDatabaseLoaded())
             {
-                HttpContext.Session.SetString("CurrentDatabase", databaseName);
+                IsDatabaseLoaded = true;
+                CurrentDatabase = databaseName; // Update the CurrentDatabase property
+                HttpContext.Session.SetString("CurrentDatabase", databaseName); // Update the session to reflect the new current database
+
+                // Update the UI message to reflect the new current database
+                Message = $"Current Database: {CurrentDatabase}";
             }
             else
             {
-
+                // Handle the case where database creation fails
+                Message = "Failed to create the database.";
             }
 
-            // Serialize the updated Command object and save it back into the session
+            // Assuming the CommandModel and its serialization is for a different purpose, unrelated to showing the current database
+            Command.History.Insert(0, new CommandResponse { Command = $"create {databaseName}", Response = createResponse });
             var modelJson = JsonSerializer.Serialize(Command);
             HttpContext.Session.SetString("CommandModel", modelJson);
         }
@@ -260,8 +272,6 @@ namespace GraphDB.Pages
         //    }
         //}
 
-        // This method would need to correctly identify and return the Graph instance for the given database name.
-        // Implementation would depend on how you manage Graph instances within your application.
         private Graph GetCurrentGraphInstance(string databaseName)
         {
             // Example implementation detail
