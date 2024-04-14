@@ -23,13 +23,22 @@ namespace GraphDB
             // Constructor is now parameterless
         }
 
-        public Graph GetCurrentGraph() => _currentGraph;
+        public Graph GetCurrentGraph()
+        {
+            if (_currentGraph == null || !_currentGraph.IsDatabaseLoaded)
+            {
+                throw new InvalidOperationException("No graph is currently loaded.");
+            }
+            return _currentGraph;
+        }
 
         public string GetDatabaseName() => _databaseName;
 
         public string GetDatabasePath() => _currentGraph != null ? Path.Combine(DefaultFilePath, $"{_databaseName}.json") : null;
 
-        public bool IsDatabaseLoaded => _currentGraph != null;
+        public bool IsDatabaseLoaded => _currentGraph != null && _currentGraph.IsDatabaseLoaded;
+
+
 
 
         public string CreateDatabase(string databaseName)
@@ -48,7 +57,7 @@ namespace GraphDB
             try { 
             _databaseName = databaseName;
             _currentGraph = new Graph(databaseName);
-            SaveGraph(path); // Assuming a SaveGraph method that handles serialization
+            SaveGraph(); // Assuming a SaveGraph method that handles serialization
             return $"Database '{databaseName}' created successfully at '{path}'.";
         }
                 catch (Exception ex)
@@ -58,16 +67,38 @@ namespace GraphDB
                 }
 }
 
-        private void SaveGraph(string path)
+        public void SaveGraph()
         {
-            var json = JsonConvert.SerializeObject(_currentGraph, Formatting.Indented);
-            File.WriteAllText(path, json);
+            if (_currentGraph == null || string.IsNullOrWhiteSpace(_databaseName))
+            {
+                Console.WriteLine("No graph loaded or database name is missing.");
+                return;
+            }
+
+            string path = GetDatabasePath();
+            if (string.IsNullOrEmpty(path))
+            {
+                Console.WriteLine("Failed to get the database path.");
+                return;
+            }
+
+            try
+            {
+                var json = JsonConvert.SerializeObject(_currentGraph, Formatting.Indented);
+                File.WriteAllText(path, json);
+                Console.WriteLine("Graph saved successfully.");
+            }
+            catch (Exception ex)
+            {
+                LogException(ex);
+            }
         }
 
-       
 
 
-    public dynamic ExecuteCypherCommand(string cypher)
+
+
+        public dynamic ExecuteCypherCommand(string cypher)
         {
             CypherCommandType commandType = cypher.ToCommandType();
             switch (commandType)
@@ -648,7 +679,7 @@ namespace GraphDB
                         result.AppendLine($"Node ID: {node.Id}, Label: {node.Label}");
                     }
 
-                    return ApiResponse<string>.SuccessResponse(result.ToString());
+                    return ApiResponse<string>.SuccessResponse(null,result.ToString());
                 }
                 else
                 {
@@ -692,8 +723,8 @@ namespace GraphDB
             {
                 string propertyName = match.Groups[1].Value;
                 string propertyValue = match.Groups[2].Value;
-
-                return _graph.QueryEdgesByProperty(propertyName, propertyValue);
+                var graph = GetCurrentGraph();
+                return graph.QueryEdgesByProperty(propertyName, propertyValue);
             }
             else
             {
@@ -701,7 +732,7 @@ namespace GraphDB
             }
         }
 
-            public ApiResponse<List<Edge>> HandleMatchRelationship(string cypher)
+        public ApiResponse<List<Edge>> HandleMatchRelationship(string cypher)
         {
             var graph = GetCurrentGraph(); // Access the current graph from the service
             var pattern = new Regex(@"MATCH \((\w+)\)-\[r:(\w+)\s*\{(?:weight: '([><=]?)(\d+)')?\}\]->\((\w+)\) WHERE r\.(\w+) = '([^']+)' RETURN r", RegexOptions.IgnoreCase);
@@ -762,7 +793,7 @@ namespace GraphDB
                         var idValue = nodeToDelete.Properties["id"].ToString();
                         if (graph._nodeIndex.ContainsKey(idValue))
                         {
-                            graph.nodeIndex[idValue].Remove(nodeToDelete);
+                            graph._nodeIndex[idValue].Remove(nodeToDelete);
                         }
                     }
                     SaveCurrentGraph();
@@ -786,9 +817,9 @@ namespace GraphDB
                         if (node.Properties.ContainsKey("id"))
                         {
                             var idValue = node.Properties["id"].ToString();
-                            if (graph.nodeIndex.ContainsKey(idValue))
+                            if (graph._nodeIndex.ContainsKey(idValue))
                             {
-                                graph.nodeIndex[idValue].Remove(node);
+                                graph._nodeIndex[idValue].Remove(node);
                             }
                         }
                     }
@@ -880,12 +911,12 @@ namespace GraphDB
             if (edgeToRemove.Properties.ContainsKey("type"))
             {
                 var typeValue = edgeToRemove.Properties["type"].ToString();
-                if (graph.edgeIndex.ContainsKey(typeValue))
+                if (graph._edgeIndex.ContainsKey(typeValue))
                 {
-                    graph.edgeIndex[typeValue].Remove(edgeToRemove);
-                    if (graph.edgeIndex[typeValue].Count == 0)
+                    graph._edgeIndex[typeValue].Remove(edgeToRemove);
+                    if (graph._edgeIndex[typeValue].Count == 0)
                     {
-                        graph.edgeIndex.Remove(typeValue); // Remove the entry from the index if no more edges of this type exist
+                        graph._edgeIndex.Remove(typeValue); // Remove the entry from the index if no more edges of this type exist
                     }
                 }
             }
@@ -1223,6 +1254,7 @@ namespace GraphDB
         // Handling the Cypher command for deleting an edge
         public string HandleDeleteEdge(string cypher)
         {
+            var graph = GetCurrentGraph(); // Work with the current graph instance
             var regex = new Regex(@"DELETE EDGE FROM \((\w+)\) TO \((\w+)\)");
             var match = regex.Match(cypher);
             if (match.Success)
@@ -1230,7 +1262,7 @@ namespace GraphDB
                 string fromNodeId = match.Groups[1].Value;
                 string toNodeId = match.Groups[2].Value;
 
-                if (!_graph.CheckEdgeExists(fromNodeId, toNodeId))
+                if (!graph.CheckEdgeExists(fromNodeId, toNodeId))
                 {
                     return $"No edge exists from node {fromNodeId} to node {toNodeId}.";
                 }
@@ -1248,32 +1280,15 @@ namespace GraphDB
         // Method to delete an edge based on 'from' and 'to' node IDs
         public void DeleteEdge(string fromNodeId, string toNodeId)
         {
-            var edgesToRemove = _graph.Edges.Where(e => e.FromId == fromNodeId && e.ToId == toNodeId).ToList();
+            var graph = GetCurrentGraph(); // Work with the current graph instance
+            var edgesToRemove = graph.Edges.Where(e => e.FromId == fromNodeId && e.ToId == toNodeId).ToList();
             foreach (var edge in edgesToRemove)
             {
-                _graph.Edges.Remove(edge);
-                _graph.RemoveEdgeFromIndex(edge);
+                graph.Edges.Remove(edge);
+                graph.RemoveEdgeFromIndex(edge);
             }
-            _graph.SaveToFile();
+            SaveCurrentGraph();
         }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -1325,7 +1340,8 @@ namespace GraphDB
             {
                 var fromNodeId = match.Groups[1].Value;
                 var toNodeId = match.Groups[2].Value;
-                return CheckEdgeExists(fromNodeId, toNodeId);
+                var graph = GetCurrentGraph(); // Work with the current graph instance
+                return graph.CheckEdgeExists(fromNodeId, toNodeId);
             }
 
             // Example for numeric property comparison
@@ -1343,6 +1359,25 @@ namespace GraphDB
             Console.WriteLine("Condition not recognised or supported.");
             return false;
         }
+
+        public bool CheckNodeExists(string nodeId)
+        {
+            return _currentGraph.CheckNodeExists(nodeId);
+        }
+
+        public bool CheckNodeProperty(string nodeId, string propertyName, string propertyValue)
+        {
+
+            return _currentGraph.CheckNodeProperty(nodeId, propertyName, propertyValue);
+        }
+
+
+        public bool CheckNumericNodeProperty(string nodeId, string propertyName, string comparison, double comparisonValue)
+        {
+
+            return _currentGraph.CheckNumericNodeProperty(nodeId,  propertyName,  comparison,  comparisonValue);
+        }
+        
 
         // Utility method to parse properties from a string
         private Dictionary<string, object> ParseProperties(string propertiesString)
@@ -1409,6 +1444,24 @@ namespace GraphDB
                 Console.Error.WriteLine($"Error saving the graph: {ex.Message}");
             }
         }
+
+        public void LoadDatabase(string databaseName)
+        {
+            if (string.IsNullOrEmpty(databaseName))
+            {
+                throw new ArgumentException("Database name must be provided.", nameof(databaseName));
+            }
+
+            // Attempt to load an existing graph or create a new one if it doesn't exist
+            _databaseName = databaseName;
+            _currentGraph = new Graph(databaseName); // Graph constructor handles loading
+            if (!_currentGraph.IsDatabaseLoaded)
+            {
+                // Handle the logic if the graph couldn't be loaded - possibly initialize a new graph or log this event
+                Console.WriteLine($"No existing database found for '{databaseName}'. A new one will be initialized.");
+            }
+        }
+
 
         public void AddNodeToCurrentGraph(Node node)
         {

@@ -1,28 +1,40 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using System.Linq;
 using System.Collections.Generic;
-
+using System;
 
 namespace GraphDB
 {
     [ApiController]
     [Route("api/[controller]")]
-
     public class GraphController : ControllerBase
     {
-        private static Graph graph;
+        private readonly GraphService _graphService;
 
+        public GraphController()
+        {
+            _graphService = GraphService.Instance;  // Assuming GraphService is a singleton
+        }
 
         [HttpPost("node")]
         public IActionResult AddNode([FromBody] Node node)
         {
+            var graph = _graphService.GetCurrentGraph();
+            if (graph == null)
+                return BadRequest("No active graph. Please create or load a graph first.");
+
             graph.AddNode(node);
+            _graphService.SaveGraph(); // Ensure changes are persisted
             return Ok($"Node {node.Id} added.");
         }
 
         [HttpPost("edge")]
         public IActionResult AddEdge([FromBody] dynamic edgeData)
         {
+            var graph = _graphService.GetCurrentGraph();
+            if (graph == null)
+                return BadRequest("No active graph. Please create or load a graph first.");
+
             var fromId = (string)edgeData.FromId;
             var toId = (string)edgeData.ToId;
             var weight = (double)(edgeData.Weight ?? 1.0); // Default weight to 1.0 if not provided
@@ -38,19 +50,20 @@ namespace GraphDB
             }
 
             graph.AddEdge(fromId, toId, weight, relationshipType, properties);
-
+            _graphService.SaveGraph(); // Ensure changes are persisted
             return Ok($"Edge from {fromId} to {toId} with relationship {relationshipType} added.");
         }
-
-
-
 
         [HttpGet("command")]
         public IActionResult Command([FromQuery] string query)
         {
+            var graph = _graphService.GetCurrentGraph();
+            if (graph == null)
+                return BadRequest("No active graph. Please create or load a graph first.");
+
             try
             {
-                var result = graph.ExecuteCypherCommand(query); // Use ExecuteCypherCommand for Cypher-style queries
+                var result = _graphService.ExecuteCypherCommand(query);
                 return Ok(result);
             }
             catch (Exception ex)
@@ -58,20 +71,19 @@ namespace GraphDB
                 return BadRequest($"Error processing command: {ex.Message}");
             }
         }
+
         [HttpGet("findneighbors")]
         public ActionResult<List<NodeResponse>> FindNeighbors([FromQuery] string cypher)
         {
-            var response = graph.HandleFindNeighbors(cypher);
+            var graph = _graphService.GetCurrentGraph();
+            if (graph == null)
+                return BadRequest("No active graph. Please create or load a graph first.");
 
-            // Check if the ApiResponse indicates success and if the data within has any elements
+            var response = _graphService.HandleFindNeighbors(cypher);
+
             if (!response.Success || response.Data == null || response.Data.Count == 0)
-            {
                 return NotFound(response.Message);
-            }
 
-            // Return the data part of the ApiResponse directly, assuming it's already a serialized JSON string
-            // If your setup expects an actual list of objects to be returned and serialized by ASP.NET Core, you might return the Data property itself
-            // For example, assuming Data is a List<NodeResponse>
             return Ok(response.Data);
         }
 
@@ -79,27 +91,21 @@ namespace GraphDB
         public IActionResult CreateGraph([FromBody] GraphDbRequest request)
         {
             if (string.IsNullOrWhiteSpace(request.DbName))
-            {
                 return BadRequest("Database name must be provided.");
-            }
-            graph = new Graph(request.DbName);
 
-            return Ok($"Graph '{request.DbName}' created and saved.");
+            _graphService.CreateDatabase(request.DbName);
+            return Ok($"Graph '{request.DbName}' created and initialized.");
         }
 
         [HttpPost("load")]
         public IActionResult LoadGraph([FromBody] GraphDbRequest request)
         {
             if (request == null || string.IsNullOrWhiteSpace(request.DbName))
-            {
                 return BadRequest("Database name must be provided.");
-            }
-
 
             try
             {
-                graph = new Graph(request.DbName);
-                graph.LoadGraph();
+                _graphService.CreateOrLoadDatabase(request.DbName);
                 return Ok($"Graph loaded from {request.DbName}.");
             }
             catch (FileNotFoundException ex)
@@ -107,7 +113,6 @@ namespace GraphDB
                 return NotFound(ex.Message);
             }
         }
-
     }
 
     public class GraphDbRequest

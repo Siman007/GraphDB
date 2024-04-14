@@ -17,8 +17,8 @@ namespace GraphDB
         public List<Node> Nodes { get; private set; } = new List<Node>();
         public List<Edge> Edges { get; private set; } = new List<Edge>();
 
-        private readonly Dictionary<string, List<Node>> _nodeIndex = new Dictionary<string, List<Node>>();
-        private readonly Dictionary<string, List<Edge>> _edgeIndex = new Dictionary<string, List<Edge>>();
+        public readonly Dictionary<string, List<Node>> _nodeIndex = new Dictionary<string, List<Node>>();
+        public readonly Dictionary<string, List<Edge>> _edgeIndex = new Dictionary<string, List<Edge>>();
 
         public Graph(string graphName)
         {
@@ -63,6 +63,105 @@ namespace GraphDB
             }
         }
 
+        public bool CheckEdgeExists(string fromNodeId, string toNodeId)
+        {
+            // Check if any edge exists with the given fromNodeId and toNodeId
+            return Edges.Any(edge => edge.FromId == fromNodeId && edge.ToId == toNodeId);
+        }
+
+       
+        public List<Edge> QueryEdgesByProperty(string propertyName, string propertyValue)
+        {
+            // Check if the property name or value provided is null or empty to avoid errors during querying.
+            if (string.IsNullOrEmpty(propertyName) || propertyValue == null)
+            {
+                throw new ArgumentException("Property name and value must be provided.");
+            }
+
+            // Filter and return edges where the property exists and matches the specified value.
+            return Edges.Where(e => e.Properties.ContainsKey(propertyName) &&
+                                    e.Properties[propertyName].ToString() == propertyValue).ToList();
+        }
+        public void RemoveEdgeFromIndex(Edge edge)
+        {
+            if (edge == null)
+            {
+                throw new ArgumentNullException(nameof(edge), "Edge cannot be null when trying to remove from index.");
+            }
+
+            // Assuming the edge index is by 'RelationshipType'
+            if (_edgeIndex.ContainsKey(edge.RelationshipType))
+            {
+                // Remove the edge from the list in the index
+                _edgeIndex[edge.RelationshipType].Remove(edge);
+
+                // If there are no more edges of this type, consider cleaning up the dictionary
+                if (_edgeIndex[edge.RelationshipType].Count == 0)
+                {
+                    _edgeIndex.Remove(edge.RelationshipType);
+                }
+            }
+        }
+        public bool CheckNodeProperty(string nodeId, string propertyName, string propertyValue)
+        {
+            var node = Nodes.FirstOrDefault(n => n.Id == nodeId);
+            if (node != null && node.Properties.TryGetValue(propertyName, out var value))
+            {
+                return value.ToString() == propertyValue;
+            }
+            return false;
+        }
+        public bool CheckNodeExists(string nodeId)
+        {
+
+            return Nodes.Any(node => node.Id == nodeId);
+        }
+        public bool CheckNumericNodeProperty(string nodeId, string propertyName, string comparison, double comparisonValue)
+        {
+            var node = Nodes.FirstOrDefault(n => n.Id == nodeId);
+            if (node == null || !node.Properties.ContainsKey(propertyName))
+            {
+                return false;
+            }
+
+            // Try to parse the property value as double
+            if (double.TryParse(node.Properties[propertyName].ToString(), out double propertyValue))
+            {
+                switch (comparison)
+                {
+                    case ">":
+                        return propertyValue > comparisonValue;
+                    case "<":
+                        return propertyValue < comparisonValue;
+                    case "=":
+                        return Math.Abs(propertyValue - comparisonValue) < 0.0001; // Considering a small tolerance for floating-point comparisons
+                    default:
+                        throw new ArgumentException("Invalid comparison operator. Only '>', '<', '=' are supported.");
+                }
+            }
+            return false;
+        }
+        public void RemoveNodeFromIndex(Node node)
+        {
+            if (node == null)
+            {
+                throw new ArgumentNullException(nameof(node), "Node cannot be null when trying to remove from index.");
+            }
+
+            // Check if the node's ID is indexed, and if so, remove the node from that list.
+            if (_nodeIndex.ContainsKey(node.Id))
+            {
+                _nodeIndex[node.Id].Remove(node);
+
+                // If there are no more nodes in the list for this ID, clean up by removing the key from the dictionary.
+                if (_nodeIndex[node.Id].Count == 0)
+                {
+                    _nodeIndex.Remove(node.Id);
+                }
+            }
+        }
+
+
         public void UpdateNodeIndex(Node node)
         {
             if (node == null || string.IsNullOrEmpty(node.Id)) return;
@@ -85,18 +184,8 @@ namespace GraphDB
             edges.Add(edge);
         }
 
-        //public void SaveGraph()
-        //{
-        //    var graphData = new GraphData
-        //    {
-        //        Nodes = Nodes,
-        //        Edges = Edges
-        //    };
+       
 
-        //    var json = JsonConvert.SerializeObject(graphData, Formatting.Indented);
-        //    File.WriteAllText(_graphPath, json);
-        //    _isDatabaseLoaded = true;
-        //}
 
         private void LoadGraph()
         {
@@ -106,18 +195,23 @@ namespace GraphDB
                 {
                     var json = File.ReadAllText(_graphPath);
                     var graphData = JsonConvert.DeserializeObject<GraphData>(json);
-                    if (graphData != null)
-                    {
-                        Nodes = graphData.Nodes ?? new List<Node>();
-                        Edges = graphData.Edges ?? new List<Edge>();
-                        foreach (var node in Nodes) UpdateNodeIndex(node);
-                        foreach (var edge in Edges) UpdateEdgeIndex(edge);
-                    }
+                    if (graphData == null) throw new JsonException("Deserialized graph data is null.");
+
+                    Nodes = graphData.Nodes ?? new List<Node>();
+                    Edges = graphData.Edges ?? new List<Edge>();
+                    foreach (var node in Nodes) UpdateNodeIndex(node);
+                    foreach (var edge in Edges) UpdateEdgeIndex(edge);
+
                     _isDatabaseLoaded = true;
                 }
                 catch (JsonException ex)
                 {
                     Console.WriteLine($"Failed to parse the graph data: {ex.Message}");
+                    InitializeEmptyGraph();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"An error occurred while loading the graph: {ex.Message}");
                     InitializeEmptyGraph();
                 }
             }
@@ -127,12 +221,14 @@ namespace GraphDB
             }
         }
 
+
         public List<Node> QueryNodesByProperty(string propertyName, string propertyValue)
         {
             return Nodes.Where(n => n.Properties.ContainsKey(propertyName) &&
                                     n.Properties[propertyName].ToString() == propertyValue).ToList();
         }
 
+        
 
 
         // This method finds all neighbors of a given node identified by nodeId. Optionally filters by label if provided.
@@ -168,9 +264,5 @@ namespace GraphDB
         }
     }
 
-    public class GraphData
-    {
-        public List<Node> Nodes { get; set; }
-        public List<Edge> Edges { get; set; }
-    }
+  
 }
