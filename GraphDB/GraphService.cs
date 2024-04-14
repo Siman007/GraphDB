@@ -783,19 +783,9 @@ namespace GraphDB
             if (matchById.Success)
             {
                 string nodeId = matchById.Groups[1].Value;
-                var nodeToDelete = graph.Nodes.FirstOrDefault(n => n.Properties.ContainsKey("id") && n.Properties["id"].ToString() == nodeId);
-                if (nodeToDelete != null)
+                if (graph.Nodes.Any(n => n.Id == nodeId))
                 {
-                    graph.Nodes.Remove(nodeToDelete);
-                    // Explicitly manage index on delete
-                    if (nodeToDelete.Properties.ContainsKey("id"))
-                    {
-                        var idValue = nodeToDelete.Properties["id"].ToString();
-                        if (graph._nodeIndex.ContainsKey(idValue))
-                        {
-                            graph._nodeIndex[idValue].Remove(nodeToDelete);
-                        }
-                    }
+                    graph.DeleteNode(nodeId);
                     SaveCurrentGraph();
                     return ApiResponse<object>.SuccessResponse(null, $"Node with ID {nodeId} deleted successfully.");
                 }
@@ -812,16 +802,7 @@ namespace GraphDB
                 {
                     foreach (var node in nodesToDelete)
                     {
-                        graph.Nodes.Remove(node);
-                        // Explicitly manage index on delete
-                        if (node.Properties.ContainsKey("id"))
-                        {
-                            var idValue = node.Properties["id"].ToString();
-                            if (graph._nodeIndex.ContainsKey(idValue))
-                            {
-                                graph._nodeIndex[idValue].Remove(node);
-                            }
-                        }
+                        graph.DeleteNode(node.Id);
                     }
                     SaveCurrentGraph();
                     return ApiResponse<object>.SuccessResponse(null, $"Nodes with label {nodeLabel} deleted successfully.");
@@ -831,6 +812,7 @@ namespace GraphDB
 
             return ApiResponse<object>.ErrorResponse("Invalid DELETE syntax.");
         }
+
 
 
 

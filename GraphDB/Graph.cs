@@ -7,6 +7,9 @@ using Newtonsoft.Json;
 
 namespace GraphDB
 {
+    /// <summary>
+    /// Represents a graph containing nodes and edges with basic graph operations.
+    /// </summary>
     public class Graph
     {
         private const string DefaultFilePath = "data";
@@ -24,21 +27,14 @@ namespace GraphDB
         {
             _graphName = graphName ?? throw new ArgumentNullException(nameof(graphName));
             _graphPath = Path.Combine(DefaultFilePath, $"{_graphName}.json");
+            Nodes = new List<Node>();
+            Edges = new List<Edge>();
             LoadGraph();
         }
 
         public bool IsDatabaseLoaded => _isDatabaseLoaded;
 
-        public void AddNode(Node node)
-        {
-            if (node == null) throw new ArgumentNullException(nameof(node));
-            if (!Nodes.Exists(n => n.Id == node.Id))
-            {
-                Nodes.Add(node);
-                UpdateNodeIndex(node);
-            }
-        }
-
+       
         public void AddEdge(string fromId, string toId, double weight, string relationshipType, Dictionary<string, object> properties = null)
         {
             if (string.IsNullOrEmpty(fromId) || string.IsNullOrEmpty(toId)) return;
@@ -62,6 +58,35 @@ namespace GraphDB
                 UpdateEdgeIndex(edge);
             }
         }
+        public void DeleteEdge(string fromNodeId, string toNodeId, string relationshipType)
+        {
+            // Find the edge with the given start, end, and relationship type
+            var edgeToRemove = Edges.FirstOrDefault(e => e.FromId == fromNodeId && e.ToId == toNodeId && e.RelationshipType == relationshipType);
+            if (edgeToRemove == null)
+                return;
+
+            // Remove the edge from the list and its index
+            Edges.Remove(edgeToRemove);
+            if (_edgeIndex.ContainsKey(relationshipType))
+            {
+                _edgeIndex[relationshipType].Remove(edgeToRemove);
+                if (_edgeIndex[relationshipType].Count == 0)
+                    _edgeIndex.Remove(relationshipType);
+            }
+        }
+
+
+        public void UpdateEdgeIndex(Edge edge)
+        {
+            if (edge == null || string.IsNullOrEmpty(edge.RelationshipType)) return;
+            if (!_edgeIndex.TryGetValue(edge.RelationshipType, out var edges))
+            {
+                edges = new List<Edge>();
+                _edgeIndex[edge.RelationshipType] = edges;
+            }
+            edges.Add(edge);
+        }
+
 
         public bool CheckEdgeExists(string fromNodeId, string toNodeId)
         {
@@ -102,6 +127,42 @@ namespace GraphDB
                 }
             }
         }
+
+        public void AddNode(Node node)
+        {
+            if (node == null) throw new ArgumentNullException(nameof(node));
+            if (!Nodes.Exists(n => n.Id == node.Id))
+            {
+                Nodes.Add(node);
+                UpdateNodeIndex(node);
+            }
+        }
+
+        public void DeleteNode(string nodeId)
+        {
+            // Check if the node exists
+            var nodeToRemove = Nodes.FirstOrDefault(n => n.Id == nodeId);
+            if (nodeToRemove == null)
+                return;
+
+            // Remove all edges connected to this node
+            var connectedEdges = Edges.Where(e => e.FromId == nodeId || e.ToId == nodeId).ToList();
+            foreach (var edge in connectedEdges)
+            {
+                Edges.Remove(edge);
+                if (_edgeIndex.ContainsKey(edge.RelationshipType))
+                {
+                    _edgeIndex[edge.RelationshipType].Remove(edge);
+                    if (_edgeIndex[edge.RelationshipType].Count == 0)
+                        _edgeIndex.Remove(edge.RelationshipType);
+                }
+            }
+
+            // Remove the node
+            Nodes.Remove(nodeToRemove);
+            RemoveNodeFromIndex(nodeToRemove);
+        }
+
         public bool CheckNodeProperty(string nodeId, string propertyName, string propertyValue)
         {
             var node = Nodes.FirstOrDefault(n => n.Id == nodeId);
@@ -173,54 +234,6 @@ namespace GraphDB
             nodes.Add(node);
         }
 
-        public void UpdateEdgeIndex(Edge edge)
-        {
-            if (edge == null || string.IsNullOrEmpty(edge.RelationshipType)) return;
-            if (!_edgeIndex.TryGetValue(edge.RelationshipType, out var edges))
-            {
-                edges = new List<Edge>();
-                _edgeIndex[edge.RelationshipType] = edges;
-            }
-            edges.Add(edge);
-        }
-
-       
-
-
-        private void LoadGraph()
-        {
-            if (File.Exists(_graphPath))
-            {
-                try
-                {
-                    var json = File.ReadAllText(_graphPath);
-                    var graphData = JsonConvert.DeserializeObject<GraphData>(json);
-                    if (graphData == null) throw new JsonException("Deserialized graph data is null.");
-
-                    Nodes = graphData.Nodes ?? new List<Node>();
-                    Edges = graphData.Edges ?? new List<Edge>();
-                    foreach (var node in Nodes) UpdateNodeIndex(node);
-                    foreach (var edge in Edges) UpdateEdgeIndex(edge);
-
-                    _isDatabaseLoaded = true;
-                }
-                catch (JsonException ex)
-                {
-                    Console.WriteLine($"Failed to parse the graph data: {ex.Message}");
-                    InitializeEmptyGraph();
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"An error occurred while loading the graph: {ex.Message}");
-                    InitializeEmptyGraph();
-                }
-            }
-            else
-            {
-                InitializeEmptyGraph();
-            }
-        }
-
 
         public List<Node> QueryNodesByProperty(string propertyName, string propertyValue)
         {
@@ -255,6 +268,40 @@ namespace GraphDB
             }
 
             return neighbors.Distinct().ToList(); // Ensure unique nodes are returned if multiple edges connect to the same neighbor
+        }
+
+        private void LoadGraph()
+        {
+            if (File.Exists(_graphPath))
+            {
+                try
+                {
+                    var json = File.ReadAllText(_graphPath);
+                    var graphData = JsonConvert.DeserializeObject<GraphData>(json);
+                    if (graphData == null) throw new JsonException("Deserialized graph data is null.");
+
+                    Nodes = graphData.Nodes ?? new List<Node>();
+                    Edges = graphData.Edges ?? new List<Edge>();
+                    foreach (var node in Nodes) UpdateNodeIndex(node);
+                    foreach (var edge in Edges) UpdateEdgeIndex(edge);
+
+                    _isDatabaseLoaded = true;
+                }
+                catch (JsonException ex)
+                {
+                    Console.WriteLine($"Failed to parse the graph data: {ex.Message}");
+                    InitializeEmptyGraph();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"An error occurred while loading the graph: {ex.Message}");
+                    InitializeEmptyGraph();
+                }
+            }
+            else
+            {
+                InitializeEmptyGraph();
+            }
         }
         private void InitializeEmptyGraph()
         {
