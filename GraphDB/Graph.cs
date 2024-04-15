@@ -1,9 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text;
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 
 namespace GraphDB
 {
@@ -15,7 +10,9 @@ namespace GraphDB
         private const string DefaultFilePath = "data";
         private readonly string _graphPath;
         private readonly string _graphName;
-        private bool _isDatabaseLoaded;
+        private bool _isDatabaseLoaded = flase;
+        private bool _isDatabaseNew = true;
+        public string DataBaseName = "";
 
         public List<Node> Nodes { get; private set; } = new List<Node>();
         public List<Edge> Edges { get; private set; } = new List<Edge>();
@@ -29,12 +26,17 @@ namespace GraphDB
             _graphPath = Path.Combine(DefaultFilePath, $"{_graphName}.json");
             Nodes = new List<Node>();
             Edges = new List<Edge>();
-            LoadGraph();
+            LoadOrCreateGraph();
+        }
+
+        public string GetDatabaseName()
+        {
+            return _graphName;
         }
 
         public bool IsDatabaseLoaded => _isDatabaseLoaded;
-
-       
+        public bool IsDatabaseNew => _isDatabaseNew;
+;       
         public void AddEdge(string fromId, string toId, double weight, string relationshipType, Dictionary<string, object> properties = null)
         {
             if (string.IsNullOrEmpty(fromId) || string.IsNullOrEmpty(toId)) return;
@@ -270,7 +272,7 @@ namespace GraphDB
             return neighbors.Distinct().ToList(); // Ensure unique nodes are returned if multiple edges connect to the same neighbor
         }
 
-        private void LoadGraph()
+        private void LoadOrCreateGraph()
         {
             if (File.Exists(_graphPath))
             {
@@ -286,11 +288,13 @@ namespace GraphDB
                     foreach (var edge in Edges) UpdateEdgeIndex(edge);
 
                     _isDatabaseLoaded = true;
+                    _isDatabaseNew = false;
                 }
                 catch (JsonException ex)
                 {
                     Console.WriteLine($"Failed to parse the graph data: {ex.Message}");
                     InitializeEmptyGraph();
+
                 }
                 catch (Exception ex)
                 {
@@ -307,7 +311,8 @@ namespace GraphDB
         {
             Nodes = new List<Node>();
             Edges = new List<Edge>();
-            _isDatabaseLoaded = false;
+            _isDatabaseLoaded = true;
+            _isDatabaseNew = true;
         }
     }
 

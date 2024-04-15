@@ -2,6 +2,7 @@
 using System.Linq;
 using System.Collections.Generic;
 using System;
+using System.Text.RegularExpressions;
 
 namespace GraphDB
 {
@@ -53,24 +54,54 @@ namespace GraphDB
             _graphService.SaveGraph(); // Ensure changes are persisted
             return Ok($"Edge from {fromId} to {toId} with relationship {relationshipType} added.");
         }
-
-        [HttpGet("command")]
-        public IActionResult Command([FromQuery] string query)
+        [HttpPost("commands")]
+        public IActionResult ExecuteCommands([FromBody] string commands)
         {
             var graph = _graphService.GetCurrentGraph();
             if (graph == null)
+            {
                 return BadRequest("No active graph. Please create or load a graph first.");
+            }
 
-            try
+            // Splitting the commands string into individual commands using a sophisticated pattern
+            var commandList = SplitCypherCommands(commands);
+
+            var results = new List<dynamic>();
+            foreach (var command in commandList)
             {
-                var result = _graphService.ExecuteCypherCommand(query);
-                return Ok(result);
+                try
+                {
+                    // Normalize and execute each command
+                    var result = _graphService.ExecuteCypherCommands(command.Trim()); // Note the plural in method name if you decide to handle each command as potentially containing multiple sub-commands
+                    results.Add(new { Command = command, Result = result });
+                }
+                catch (Exception ex)
+                {
+                    // Collect errors for each command that fails
+                    results.Add(new { Command = command, Error = $"Error processing command: {ex.Message}" });
+                }
             }
-            catch (Exception ex)
-            {
-                return BadRequest($"Error processing command: {ex.Message}");
-            }
+
+            return Ok(results);
         }
+
+        private IEnumerable<string> SplitCypherCommands(string commands)
+        {
+            // Remove or ignore lines that start with "//" which are comments
+            var lines = commands.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                                .Where(line => !line.TrimStart().StartsWith("//"));
+
+            // Rejoin the lines back into a single string to apply the semicolon split
+            var filteredCommands = string.Join(" ", lines);
+
+            // Regex to split by semicolons that are not within quotes
+            var regex = new Regex(@"\s*;\s*(?=(?:[^""]*""[^""]*"")*[^""]*$)");
+            return regex.Split(filteredCommands)
+                        .Where(cmd => !string.IsNullOrWhiteSpace(cmd));
+        }
+
+
+
 
         [HttpGet("findneighbors")]
         public ActionResult<List<NodeResponse>> FindNeighbors([FromQuery] string cypher)
@@ -105,7 +136,7 @@ namespace GraphDB
 
             try
             {
-                _graphService.CreateOrLoadDatabase(request.DbName);
+                _graphService.LoadDatabase(request.DbName);
                 return Ok($"Graph loaded from {request.DbName}.");
             }
             catch (FileNotFoundException ex)

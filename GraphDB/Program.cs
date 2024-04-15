@@ -1,9 +1,15 @@
 ﻿var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-builder.Services.AddRazorPages();  // Support for Razor Pages
+builder.Services.AddSingleton<GraphDB.GraphService>(); // Registers GraphService as a singleton
+builder.Services.AddRazorPages(); // Support for Razor Pages
 builder.Services.AddControllers(); // Adds support for API controllers
 
+// Register IHttpClientFactory
+builder.Services.AddHttpClient("GraphDB", client =>
+{
+    client.BaseAddress = new Uri("https://localhost:7211/"); // Base URI of the API
+});
 // Register IHttpClientFactory
 // Add HttpClientFactory with a named client configuration
 builder.Services.AddHttpClient("GraphDB", client =>
@@ -12,6 +18,12 @@ builder.Services.AddHttpClient("GraphDB", client =>
 });
 
 
+
+// Register IHttpClientFactory
+builder.Services.AddHttpClient("GraphDB", client =>
+{
+    client.BaseAddress = new Uri("https://localhost:7211/"); // Base URI of the API
+});
 // Add session support
 builder.Services.AddDistributedMemoryCache(); // Backing store for sessions
 builder.Services.AddSession(options =>

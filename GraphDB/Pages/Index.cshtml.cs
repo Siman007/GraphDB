@@ -28,14 +28,14 @@ namespace GraphDB.Pages
 
         public IActionResult OnPostExecuteCommand()
         {
-            var response = _graphService.ExecuteCypherCommand(Command.Command);
+            var response = _graphService.ExecuteCypherCommands(Command.Command);
             UpdateCommandHistory(Command.Command, response.ToString());
             return RedirectToPage();
         }
 
         public IActionResult OnPostReExecuteCommand(string commandToExecute)
         {
-            var response = _graphService.ExecuteCypherCommand(commandToExecute);
+            var response = _graphService.ExecuteCypherCommands(commandToExecute);
             UpdateCommandHistory(commandToExecute, response.ToString());
             return RedirectToPage();
         }

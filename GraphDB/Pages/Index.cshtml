@@ -39,7 +39,8 @@
 <section class="command-input">
     <form method="post" asp-page-handler="ExecuteCommand" class="form-container">
         <div class="form-group flex-container">
-            <input type="text" asp-for="Command.Command" placeholder="Enter command" class="form-control flex-input" />
+            <textarea asp-for="Command.Command" placeholder="Enter command" class="form-control flex-input" rows="4"></textarea>
+
             <button type="submit" class="btn btn-primary">Execute</button>
         </div>
     </form>

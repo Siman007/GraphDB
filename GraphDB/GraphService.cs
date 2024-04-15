@@ -18,7 +18,7 @@ namespace GraphDB
         private Graph _currentGraph;
         private string _databaseName;
 
-        private GraphService()
+        public GraphService()
         {
             // Constructor is now parameterless
         }
@@ -36,7 +36,7 @@ namespace GraphDB
 
         public string GetDatabasePath() => _currentGraph != null ? Path.Combine(DefaultFilePath, $"{_databaseName}.json") : null;
 
-        public bool IsDatabaseLoaded => _currentGraph != null && _currentGraph.IsDatabaseLoaded;
+        public bool IsDatabaseLoaded = false;
 
 
 
@@ -54,18 +54,26 @@ namespace GraphDB
                 return $"Database '{databaseName}' already exists.";
             }
 
-            try { 
-            _databaseName = databaseName;
-            _currentGraph = new Graph(databaseName);
-            SaveGraph(); // Assuming a SaveGraph method that handles serialization
-            return $"Database '{databaseName}' created successfully at '{path}'.";
-        }
-                catch (Exception ex)
+            try
+            { 
+                _databaseName = databaseName;
+                _currentGraph = new Graph(databaseName);
+                if (_currentGraph.IsDatabaseNew)
                 {
-                    LogException(ex);
-                    return $"Failed to create the database '{databaseName}': {ex.Message}";
+                    SaveGraph(); // Assuming a SaveGraph method that handles serialization
+                    return $"Database '{databaseName}' created successfully at '{path}'.";
                 }
-}
+                else
+                {
+                    return $"Database '{databaseName}' already exists, data loaded from '{path}'.";
+                }
+            }
+            catch (Exception ex)
+            {
+                LogException(ex);
+                return $"Failed to create the database '{databaseName}': {ex.Message}";
+            }
+        }
 
         public void SaveGraph()
         {
@@ -95,14 +103,39 @@ namespace GraphDB
         }
 
 
-
-
-
-        public dynamic ExecuteCypherCommand(string cypher)
+        public dynamic ExecuteCypherCommands(string cypherScript)
         {
+            // Split the script into separate commands by a delimiter, e.g., a semicolon followed by a newline
+            var commands = cypherScript.Split(new[] { ";\n", ";\r\n" }, StringSplitOptions.RemoveEmptyEntries);
+            var results = new List<dynamic>();
+
+            foreach (var command in commands)
+            {
+                try
+                {
+                    var trimmedCommand = command.Trim();
+                    if (!string.IsNullOrEmpty(trimmedCommand))
+                    {
+                        results.Add(ExecuteSingleCypherCommand(trimmedCommand));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    results.Add(new { Error = $"Error processing command '{command}': {ex.Message}" });
+                }
+            }
+
+            return results; // Return all results, including successes and errors
+        }
+
+        private dynamic ExecuteSingleCypherCommand(string cypher)
+        {
+            
             CypherCommandType commandType = cypher.ToCommandType();
             switch (commandType)
             {
+                case CypherCommandType.CreateDatabase:
+                    return HandleCreateDatabase(ExtractDatabaseName(cypher));
                 case CypherCommandType.CreateNode:
                     return HandleCreateNode(cypher);
                 case CypherCommandType.MergeNode:
@@ -159,6 +192,34 @@ namespace GraphDB
             }
         }
 
+        public string HandleCreateDatabase(string databaseName)
+        {
+            if (string.IsNullOrWhiteSpace(databaseName))
+            {
+                return "Database name must be provided.";
+            }
+
+            Create(databaseName);
+
+           
+            return $"Database '{databaseName}' created successfully.";
+        }
+
+        //public void SaveNewGraph()
+        //{
+        //    string filePath = Path.Combine(DefaultFilePath, $"{_currentGraph.GetDatabaseName()}.json");
+        //    SaveCurrentGraph();
+        //}
+
+        private string ExtractDatabaseName(string cypher)
+        {
+            var match = Regex.Match(cypher, @"CREATE DATABASE\s+'([^']+)'", RegexOptions.IgnoreCase);
+            if (match.Success)
+            {
+                return match.Groups[1].Value;
+            }
+            throw new ArgumentException("Invalid CREATE DATABASE syntax.");
+        }
 
         private ApiResponse<NodeResponse> HandleCreateNode(string cypher)
         {
@@ -340,12 +401,12 @@ namespace GraphDB
             if (conditionResult)
             {
                 // Condition is true, execute the action
-                return ExecuteCypherCommand(action);
+                return ExecuteCypherCommands(action);
             }
             else
             {
                 // Condition is false, execute the alternative action
-                return ExecuteCypherCommand(alternativeAction);
+                return ExecuteCypherCommands(alternativeAction);
             }
         }
 
@@ -401,12 +462,12 @@ namespace GraphDB
                     if (conditionResult)
                     {
                         // Condition is true, execute trueAction
-                        return ExecuteCypherCommand(trueAction);
+                        return ExecuteCypherCommands(trueAction);
                     }
                     else if (hasElse)
                     {
                         // Condition is false and an ELSE exists, execute falseAction
-                        return ExecuteCypherCommand(falseAction);
+                        return ExecuteCypherCommands(falseAction);
                     }
                 }
                 catch (Exception ex)
@@ -1374,26 +1435,22 @@ namespace GraphDB
             return properties;
         }
 
-        // Method to create or load a database based on its name
-        public void CreateOrLoadDatabase(string databaseName)
-        {
-            var graphPath = ConstructGraphPath(databaseName);
+        
 
-            if (File.Exists(graphPath))
+        public void LoadDatabase(string databaseName)
+        {
+            if (string.IsNullOrEmpty(databaseName))
             {
-                // Load the graph from the file
-                var json = File.ReadAllText(graphPath);
-                _currentGraph = JsonConvert.DeserializeObject<Graph>(json);
-                if (_currentGraph == null)
-                {
-                    throw new Exception("Failed to deserialize the graph.");
-                }
+                throw new ArgumentException("Database name must be provided.", nameof(databaseName));
             }
-            else
+
+            // Attempt to load an existing graph or create a new one if it doesn't exist
+            _databaseName = databaseName;
+            _currentGraph = new Graph(databaseName); // Graph constructor handles loading
+            if (!_currentGraph.IsDatabaseLoaded)
             {
-                // Create a new graph and initialize it
-                _currentGraph = new Graph(databaseName);
-                SaveCurrentGraph(); // Save the new graph to a file
+                // Handle the logic if the graph couldn't be loaded - possibly initialize a new graph or log this event
+                Console.WriteLine($"No existing database found for '{databaseName}'. A new one will be initialized.");
             }
         }
 
@@ -1427,22 +1484,22 @@ namespace GraphDB
             }
         }
 
-        public void LoadDatabase(string databaseName)
-        {
-            if (string.IsNullOrEmpty(databaseName))
-            {
-                throw new ArgumentException("Database name must be provided.", nameof(databaseName));
-            }
+        //public void LoadDatabase(string databaseName)
+        //{
+        //    if (string.IsNullOrEmpty(databaseName))
+        //    {
+        //        throw new ArgumentException("Database name must be provided.", nameof(databaseName));
+        //    }
 
-            // Attempt to load an existing graph or create a new one if it doesn't exist
-            _databaseName = databaseName;
-            _currentGraph = new Graph(databaseName); // Graph constructor handles loading
-            if (!_currentGraph.IsDatabaseLoaded)
-            {
-                // Handle the logic if the graph couldn't be loaded - possibly initialize a new graph or log this event
-                Console.WriteLine($"No existing database found for '{databaseName}'. A new one will be initialized.");
-            }
-        }
+        //    // Attempt to load an existing graph or create a new one if it doesn't exist
+        //    _databaseName = databaseName;
+        //    _currentGraph = new Graph(databaseName); // Graph constructor handles loading
+        //    if (!_currentGraph.IsDatabaseLoaded)
+        //    {
+        //        // Handle the logic if the graph couldn't be loaded - possibly initialize a new graph or log this event
+        //        Console.WriteLine($"No existing database found for '{databaseName}'. A new one will be initialized.");
+        //    }
+        //}
 
 
         public void AddNodeToCurrentGraph(Node node)

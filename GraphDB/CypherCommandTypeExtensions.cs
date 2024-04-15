@@ -7,6 +7,7 @@ namespace GraphDB
         CreateNode,
         MergeNode,
         CreateRelationship,
+        CreateDatabase,
         MatchNode,
         MatchRelationship,
         DeleteNode,
@@ -39,39 +40,49 @@ namespace GraphDB
         {
             if (string.IsNullOrWhiteSpace(cypher)) return CypherCommandType.Unknown;
 
-            if (cypher.StartsWith("CREATE") && cypher.Contains(")-[") && cypher.Contains("]->("))
+            // Normalize the Cypher command to handle multiline inputs and standardize case
+            string normalizedCypher = string.Join(" ", cypher
+                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => line.Trim()))
+                .ToUpperInvariant(); // Convert to upper case to make checks case-insensitive
+
+            if (normalizedCypher.StartsWith("CREATE DATABASE"))
+                return CypherCommandType.CreateDatabase;
+            if (normalizedCypher.StartsWith("CREATE") && cypher.Contains(")-[") && cypher.Contains("]->("))
                 return CypherCommandType.CreateRelationship;
-            if (cypher.StartsWith("CREATE"))
+            if (normalizedCypher.StartsWith("CREATE"))
                 return CypherCommandType.CreateNode;
-            if (cypher.StartsWith("MERGE"))
+            if (normalizedCypher.StartsWith("MERGE"))
                 return CypherCommandType.MergeNode;
-            if (cypher.StartsWith("MATCH") && cypher.Contains(")-[") && cypher.Contains("]->("))
+            if (normalizedCypher.StartsWith("MATCH PATTERN"))
+                return CypherCommandType.MatchPattern;
+            if (normalizedCypher.StartsWith("MATCH") && cypher.Contains(")-[") && cypher.Contains("]->("))
                 return CypherCommandType.MatchRelationship;
-            if (cypher.StartsWith("MATCH"))
+            if (normalizedCypher.StartsWith("MATCH"))
                 return CypherCommandType.MatchNode;
-            if (cypher.StartsWith("DELETE NODE"))
+            if (normalizedCypher.StartsWith("DELETE NODE"))
                 return CypherCommandType.DeleteNode;
-            if (cypher.StartsWith("DELETE EDGE"))
+            if (normalizedCypher.StartsWith("DELETE EDGE"))
                 return CypherCommandType.DeleteEdge;
-            if (cypher.StartsWith("DETACH DELETE"))
+            if (normalizedCypher.StartsWith("DETACH DELETE"))
                 return CypherCommandType.DetachDeleteNode;
-            if (cypher.StartsWith("SET") && cypher.Contains("NODE"))
+            if (normalizedCypher.StartsWith("SET") && cypher.Contains("NODE"))
                 return CypherCommandType.SetNodeProperty;
-            if (cypher.StartsWith("SET") && cypher.Contains("EDGE"))
+            if (normalizedCypher.StartsWith("SET") && cypher.Contains("EDGE"))
                 return CypherCommandType.SetRelationshipProperty;
-            if (cypher.StartsWith("IMPORT CSV"))
+            if (normalizedCypher.StartsWith("IMPORT CSV"))
                 return CypherCommandType.ImportCsv;
-            if (cypher.StartsWith("IMPORT JSON"))
+            if (normalizedCypher.StartsWith("IMPORT JSON"))
                 return CypherCommandType.ImportJSON;
-            if (cypher.StartsWith("EXPORT CSV NODES"))
+            if (normalizedCypher.StartsWith("EXPORT CSV NODES"))
                 return CypherCommandType.ExportCsvNodes;
-            if (cypher.StartsWith("EXPORT CSV EDGES"))
+            if (normalizedCypher.StartsWith("EXPORT CSV EDGES"))
                 return CypherCommandType.ExportCsvEdges;
             if (cypher.Contains("IF CONDITION"))
                 return CypherCommandType.Conditional;
-            if (cypher.StartsWith("CASE"))
+            if (normalizedCypher.StartsWith("CASE"))
                 return CypherCommandType.Case;
-            if (cypher.StartsWith("help", StringComparison.OrdinalIgnoreCase))
+            if (normalizedCypher.StartsWith("help", StringComparison.OrdinalIgnoreCase))
                 return CypherCommandType.Help;
             if (cypher.Contains("COUNT") && cypher.Contains("NODES"))
                 return CypherCommandType.CountNodes;
@@ -81,10 +92,9 @@ namespace GraphDB
                 return CypherCommandType.AggregateSum;
             if (cypher.Contains("AVG"))
                 return CypherCommandType.AggregateAvg;
-            if (cypher.StartsWith("FIND RELATIONSHIPS"))
+            if (normalizedCypher.StartsWith("FIND RELATIONSHIPS"))
                 return CypherCommandType.FindRelationships;
-            if (cypher.StartsWith("MATCH PATTERN"))
-                return CypherCommandType.MatchPattern;
+
 
             return CypherCommandType.Unknown;
         }
