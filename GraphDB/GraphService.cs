@@ -41,67 +41,7 @@ namespace GraphDB
 
 
 
-        public string CreateDatabase(string databaseName)
-        {
-            if (string.IsNullOrWhiteSpace(databaseName))
-            {
-                return "Database name must be provided.";
-            }
-
-            string path = Path.Combine(DefaultFilePath, $"{databaseName}.json");
-            if (File.Exists(path))
-            {
-                return $"Database '{databaseName}' already exists.";
-            }
-
-            try
-            { 
-                _databaseName = databaseName;
-                _currentGraph = new Graph(databaseName);
-                if (_currentGraph.IsDatabaseNew)
-                {
-                    SaveGraph(); // Assuming a SaveGraph method that handles serialization
-                    return $"Database '{databaseName}' created successfully at '{path}'.";
-                }
-                else
-                {
-                    return $"Database '{databaseName}' already exists, data loaded from '{path}'.";
-                }
-            }
-            catch (Exception ex)
-            {
-                LogException(ex);
-                return $"Failed to create the database '{databaseName}': {ex.Message}";
-            }
-        }
-
-        public void SaveGraph()
-        {
-            if (_currentGraph == null || string.IsNullOrWhiteSpace(_databaseName))
-            {
-                Console.WriteLine("No graph loaded or database name is missing.");
-                return;
-            }
-
-            string path = GetDatabasePath();
-            if (string.IsNullOrEmpty(path))
-            {
-                Console.WriteLine("Failed to get the database path.");
-                return;
-            }
-
-            try
-            {
-                var json = JsonConvert.SerializeObject(_currentGraph, Formatting.Indented);
-                File.WriteAllText(path, json);
-                Console.WriteLine("Graph saved successfully.");
-            }
-            catch (Exception ex)
-            {
-                LogException(ex);
-            }
-        }
-
+       
 
         public dynamic ExecuteCypherCommands(string cypherScript)
         {
@@ -199,7 +139,7 @@ namespace GraphDB
                 return "Database name must be provided.";
             }
 
-            Create(databaseName);
+            CreateDatabase(databaseName);
 
            
             return $"Database '{databaseName}' created successfully.";
@@ -208,18 +148,10 @@ namespace GraphDB
         //public void SaveNewGraph()
         //{
         //    string filePath = Path.Combine(DefaultFilePath, $"{_currentGraph.GetDatabaseName()}.json");
-        //    SaveCurrentGraph();
+        //    SaveGraph();
         //}
 
-        private string ExtractDatabaseName(string cypher)
-        {
-            var match = Regex.Match(cypher, @"CREATE DATABASE\s+'([^']+)'", RegexOptions.IgnoreCase);
-            if (match.Success)
-            {
-                return match.Groups[1].Value;
-            }
-            throw new ArgumentException("Invalid CREATE DATABASE syntax.");
-        }
+        
 
         private ApiResponse<NodeResponse> HandleCreateNode(string cypher)
         {
@@ -252,7 +184,7 @@ namespace GraphDB
                 graph.UpdateNodeIndex(newNode);
 
                 // Saving the current graph state is now the responsibility of GraphService
-                SaveCurrentGraph();
+                SaveGraph();
 
                 // Return a success response with the created node details.
                 var nodeResponse = new NodeResponse
@@ -318,7 +250,7 @@ namespace GraphDB
                 graph.UpdateNodeIndex(node);
             }
 
-            SaveCurrentGraph();
+            SaveGraph();
             return nodeExists ? $"Node {nodeId} merged (updated) successfully." : $"Node {nodeId} merged (created) successfully.";
         }
 
@@ -367,7 +299,7 @@ namespace GraphDB
             graph.Edges.Add(edge);
             graph.UpdateEdgeIndex(edge);
             // Saving the current graph state is now the responsibility of GraphService
-            SaveCurrentGraph();
+            SaveGraph();
 
             var relationshipResponse = new RelationshipResponse
             {
@@ -684,7 +616,7 @@ namespace GraphDB
 
             _currentGraph.Edges.Add(edge);
             _currentGraph.UpdateEdgeIndex(edge); // Assume UpdateEdgeIndex is a method of Graph to update edge indexes
-            SaveCurrentGraph(); // Method to save the current graph state
+            SaveGraph(); // Method to save the current graph state
 
             var relationshipResponse = new RelationshipResponse
             {
@@ -847,7 +779,7 @@ namespace GraphDB
                 if (graph.Nodes.Any(n => n.Id == nodeId))
                 {
                     graph.DeleteNode(nodeId);
-                    SaveCurrentGraph();
+                    SaveGraph();
                     return ApiResponse<object>.SuccessResponse(null, $"Node with ID {nodeId} deleted successfully.");
                 }
                 return ApiResponse<object>.ErrorResponse($"No node found with ID {nodeId}.");
@@ -865,7 +797,7 @@ namespace GraphDB
                     {
                         graph.DeleteNode(node.Id);
                     }
-                    SaveCurrentGraph();
+                    SaveGraph();
                     return ApiResponse<object>.SuccessResponse(null, $"Nodes with label {nodeLabel} deleted successfully.");
                 }
                 return ApiResponse<object>.ErrorResponse($"No nodes found with label {nodeLabel}.");
@@ -922,7 +854,7 @@ namespace GraphDB
                 graph.Nodes.Remove(node);
             }
 
-            SaveCurrentGraph(); // Save changes after all deletions
+            SaveGraph(); // Save changes after all deletions
             return ApiResponse<object>.SuccessResponse(null, label == null ? $"Node {nodeIdOrLabel} and all its relationships have been deleted." : $"Nodes with label {label} and all their relationships have been deleted.");
         }
 
@@ -967,7 +899,7 @@ namespace GraphDB
             // Remove the edge from the Edges list
             graph.Edges.Remove(edgeToRemove);
 
-            SaveCurrentGraph(); // Save changes after the deletion
+            SaveGraph(); // Save changes after the deletion
             return ApiResponse<object>.SuccessResponse(null, $"Relationship {relationshipType} from {fromNodeId} to {toNodeId} has been deleted.");
         }
 
@@ -1000,7 +932,7 @@ namespace GraphDB
                 graph.UpdateNodeIndex(node); // Now an instance method on Graph
             }
 
-            SaveCurrentGraph(); // Save the updated graph
+            SaveGraph(); // Save the updated graph
             return $"Property {propertyName} of node {nodeId} has been set to {propertyValue}.";
         }
 
@@ -1062,7 +994,7 @@ namespace GraphDB
                 graph.UpdateEdgeIndex(edge);
             }
 
-            SaveCurrentGraph();
+            SaveGraph();
 
             return ApiResponse<RelationshipResponse>.SuccessResponse(
                 new RelationshipResponse
@@ -1125,7 +1057,7 @@ namespace GraphDB
                     }
                 }
 
-                SaveCurrentGraph(); // Persist changes
+                SaveGraph(); // Persist changes
                 return $"{addedCount} nodes imported successfully. {duplicateCount} duplicates found and ignored.";
             }
             catch (Exception ex)
@@ -1180,7 +1112,7 @@ namespace GraphDB
                     }
                 }
 
-                SaveCurrentGraph(); // Save changes to the graph
+                SaveGraph(); // Save changes to the graph
                 return $"{addedCount} edges imported successfully. {duplicateCount} duplicates found and ignored.";
             }
             catch (Exception ex)
@@ -1238,7 +1170,7 @@ namespace GraphDB
                     edgesAdded++;
                 }
 
-                SaveCurrentGraph();
+                SaveGraph();
                 return $"{nodesAdded} nodes and {edgesAdded} edges imported successfully from JSON.";
             }
             catch (Exception ex)
@@ -1330,7 +1262,7 @@ namespace GraphDB
                 graph.Edges.Remove(edge);
                 graph.RemoveEdgeFromIndex(edge);
             }
-            SaveCurrentGraph();
+            SaveGraph();
         }
 
 
@@ -1437,52 +1369,31 @@ namespace GraphDB
 
         
 
-        public void LoadDatabase(string databaseName)
-        {
-            if (string.IsNullOrEmpty(databaseName))
-            {
-                throw new ArgumentException("Database name must be provided.", nameof(databaseName));
-            }
-
-            // Attempt to load an existing graph or create a new one if it doesn't exist
-            _databaseName = databaseName;
-            _currentGraph = new Graph(databaseName); // Graph constructor handles loading
-            if (!_currentGraph.IsDatabaseLoaded)
-            {
-                // Handle the logic if the graph couldn't be loaded - possibly initialize a new graph or log this event
-                Console.WriteLine($"No existing database found for '{databaseName}'. A new one will be initialized.");
-            }
-        }
-
-        // Helper method to construct the file path for a graph database
-        private string ConstructGraphPath(string graphName)
-        {
-            return Path.Combine(DefaultFilePath, $"{graphName}.json");
-        }
+       
 
         // Method to save the current graph state to a file
-        public void SaveCurrentGraph()
-        {
-            var graph = GetCurrentGraph(); // Ensure you have the current graph
-            var graphData = new GraphData // Assuming GraphData is a suitable DTO
-            {
-                Nodes = graph.Nodes,
-                Edges = graph.Edges
-            };
+        //public void SaveGraph()
+        //{
+        //    var graph = GetCurrentGraph(); // Ensure you have the current graph
+        //    var graphData = new GraphData // Assuming GraphData is a suitable DTO
+        //    {
+        //        Nodes = graph.Nodes,
+        //        Edges = graph.Edges
+        //    };
 
-            try
-            {
-                // Serialize GraphData to JSON
-                var jsonData = JsonConvert.SerializeObject(graphData, Formatting.Indented);
-                File.WriteAllText(DefaultFilePath, jsonData);
-                Console.WriteLine("Graph saved successfully.");
-            }
-            catch (Exception ex)
-            {
-                // Handle potential errors, e.g., file access issues
-                Console.Error.WriteLine($"Error saving the graph: {ex.Message}");
-            }
-        }
+        //    try
+        //    {
+        //        // Serialize GraphData to JSON
+        //        var jsonData = JsonConvert.SerializeObject(graphData, Formatting.Indented);
+        //        File.WriteAllText(DefaultFilePath, jsonData);
+        //        Console.WriteLine("Graph saved successfully.");
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        // Handle potential errors, e.g., file access issues
+        //        Console.Error.WriteLine($"Error saving the graph: {ex.Message}");
+        //    }
+        //}
 
         //public void LoadDatabase(string databaseName)
         //{
@@ -1509,11 +1420,134 @@ namespace GraphDB
             // Directly call the AddNode method of the Graph class
             graph.AddNode(node);
 
-            SaveCurrentGraph(); // Optionally save the graph after modification
+            SaveGraph(); // save the graph after modification
         }
 
 
-        // Example of an exception logging method
+        public void LoadDatabase(string databaseName)
+        {
+            if (string.IsNullOrEmpty(databaseName))
+            {
+                throw new ArgumentException("Database name must be provided.", nameof(databaseName));
+            }
+
+            // Attempt to load an existing graph or create a new one if it doesn't exist
+            _databaseName = databaseName;
+            _currentGraph = new Graph(databaseName); // Graph constructor handles loading
+
+            string _graphPath = ConstructGraphPath(databaseName);
+            if (File.Exists(_graphPath))
+            {
+                try
+                {
+                    var json = File.ReadAllText(_graphPath);
+                    var graphData = JsonConvert.DeserializeObject<GraphData>(json);
+                    if (graphData == null) throw new JsonException("Deserialised graph data is null.");
+
+                    _currentGraph.loadNodes(graphData.Nodes ?? new List<Node>());
+                    _currentGraph.loadEdges(graphData.Edges ?? new List<Edge>());
+                }
+                catch (JsonException ex)
+                {
+                    Console.WriteLine($"Failed to parse the graph data: {ex.Message}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"An error occurred while loading the graph: {ex.Message}"); 
+                }
+            }
+
+            IsDatabaseLoaded = _currentGraph.IsDatabaseLoaded;
+
+            if (!_currentGraph.IsDatabaseLoaded)
+            {
+                // Handle the logic if the graph couldn't be loaded - possibly initialize a new graph or log this event
+                Console.WriteLine($"No existing database found for '{databaseName}'. A new one will be initialized.");
+            }
+        }
+
+       
+
+        public string CreateDatabase(string databaseName)
+        {
+            if (string.IsNullOrWhiteSpace(databaseName))
+            {
+                return "Database name must be provided.";
+            }
+
+            string path = Path.Combine(DefaultFilePath, $"{databaseName}.json");
+            if (File.Exists(path))
+            {
+                return $"Database '{databaseName}' already exists.";
+            }
+
+            try
+            {
+                _databaseName = databaseName;
+                _currentGraph = new Graph(databaseName);
+                IsDatabaseLoaded=_currentGraph.IsDatabaseLoaded;
+
+                if (_currentGraph.IsDatabaseNew)
+                {
+                    SaveGraph(); // Assuming a SaveGraph method that handles serialization
+                    return $"Database '{databaseName}' created successfully at '{path}'.";
+                }
+                else
+                {
+                    return $"Database '{databaseName}' already exists, data loaded from '{path}'.";
+                }
+            }
+            catch (Exception ex)
+            {
+                LogException(ex);
+                return $"Failed to create the database '{databaseName}': {ex.Message}";
+            }
+        }
+
+        public void SaveGraph()
+        {
+            if (_currentGraph == null || string.IsNullOrWhiteSpace(_databaseName))
+            {
+                Console.WriteLine("No graph loaded or database name is missing.");
+                return;
+            }
+
+            string path = GetDatabasePath();
+            if (string.IsNullOrEmpty(path))
+            {
+                Console.WriteLine("Failed to get the database path.");
+                return;
+            }
+
+            try
+            {
+                var json = JsonConvert.SerializeObject(_currentGraph, Formatting.Indented);
+                File.WriteAllText(path, json);
+                Console.WriteLine("Graph saved successfully.");
+            }
+            catch (Exception ex)
+            {
+                LogException(ex);
+            }
+        }
+
+        // Helper method to construct the file path for a graph database
+        private string ConstructGraphPath(string graphName)
+        {
+            return Path.Combine(DefaultFilePath, $"{graphName}.json");
+        }
+
+
+        private string ExtractDatabaseName(string cypher)
+        {
+            var match = Regex.Match(cypher, @"CREATE DATABASE\s+'([^']+)'", RegexOptions.IgnoreCase);
+            if (match.Success)
+            {
+                return match.Groups[1].Value;
+            }
+            throw new ArgumentException("Invalid CREATE DATABASE syntax.");
+        }
+        // Exception logging method
         private void LogException(Exception ex)
         {
             Console.WriteLine($"Error: {ex.Message}\n{ex.StackTrace}");

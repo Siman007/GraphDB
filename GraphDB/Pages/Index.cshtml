@@ -1,13 +1,19 @@
-﻿@page
+@page
 @using System.Linq
 @using Newtonsoft.Json
 @model GraphDB.Pages.IndexModel
 @section Scripts {
-<script src="https://cdn.jsdelivr.net/npm/vue@2.6.12"></script>
-<script>
-        document.addEventListener('DOMContentLoaded', function () {
+
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.12"></script>
+    <script src="https://cdn.datatables.net/1.10.21/js/jquery.dataTables.min.js"></script>
+    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.21/css/jquery.dataTables.css">
+
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
             var commandHistory = @Html.Raw(Json.Serialize(Model.Command.History));
-            commandHistory.forEach(function(item, index) {
+            commandHistory.forEach(function (item, index) {
+                console.log('here 1');
                 createVueApp(index, item.response);
             });
         });
@@ -18,21 +24,48 @@
                 data: {
                     itemResponse: responseData
                 },
+                mounted() {
+                    if (this.canBeTable(this.itemResponse)) {
+                        this.$nextTick(() => {
+                            $(this.$el.getElementsByTagName('table')[0]).DataTable();
+                        });
+                    }
+                },
+                methods: {
+                    canBeTable(data) {
+                        try {
+                            var jsonData = JSON.parse(data);
+                            return Array.isArray(jsonData) && jsonData.length > 0;
+                        } catch(e) {
+                            return false;
+                        }
+                    }
+                },
                 computed: {
                     formattedResponse: function() {
-                        return this.itemResponse;
+                        try {
+                            var jsonData = JSON.parse(this.itemResponse);
+                            if (this.canBeTable(jsonData)) {
+                                return `<table class="display"><thead><tr>${Object.keys(jsonData[0]).map(key => `<th>${key}</th>`).join('')}</tr></thead><tbody>${jsonData.map(row => `<tr>${Object.values(row).map(value => `<td>${value}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+                            } else {
+                                return `<pre>${JSON.stringify(jsonData, null, 4)}</pre>`;
+                            }
+                        } catch (e) {
+                            console.log('here');
+                            return `<pre>${this.itemResponse.replace(/\n/g, '<br>')}</pre>`;
+                        }
                     }
                 }
             });
         }
-</script>
+    </script>
 }
 
 
 
 <!-- Database Status Display -->
 <section class="database-status">
-    <p>@(Model.IsDatabaseLoaded ? $"Current database: {Model.CurrentDatabase}" : "No database is currently loaded.")</p>
+    <p>@(Model.Message)</p> <!--(Model.IsDatabaseLoaded ? $"Current database: {Model.CurrentDatabase}" : "No database is currently loaded.")</p>-->
 </section>
 
 <!-- Command Input Form -->
@@ -47,18 +80,17 @@
 </section>
 
 <!-- Command History Display -->
+<!-- Command History Display -->
 <section class="command-history">
-    <form method="post" asp-page-handler="DeleteHistory">
-        <button type="submit" class="btn btn-warning">Clear History</button>
-    </form>
     @if (Model.Command.History.Any())
     {
-        @foreach (var item in Model.Command.History.Select((value, index) => new { value, index }))
+        @for (var i = 0; i < Model.Command.History.Count; i++)
         {
+            var item = Model.Command.History[i];
             <div class="command-response-box">
-                <p><strong>Command:</strong> @item.value.Command</p>
-                <div id="@($"app-{item.index}")">
-                    <!-- Vue will render the HTML content of itemResponse here -->
+                <strong>Command:</strong> @item.Command<br>
+                <div id="app-@i">
+                    <!-- Using index for unique IDs -->
                     <pre v-html="formattedResponse"></pre>
                 </div>
             </div>

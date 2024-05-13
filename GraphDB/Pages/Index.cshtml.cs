@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using System.Text.Json;
-using GraphDB; 
+using GraphDB;
 
 namespace GraphDB.Pages
 {
@@ -9,8 +9,6 @@ namespace GraphDB.Pages
     {
         private GraphService _graphService;
 
-        public string CurrentDatabase => _graphService.GetDatabaseName();
-        public bool IsDatabaseLoaded => _graphService.IsDatabaseLoaded;
         public string Message { get; private set; }
 
         public IndexModel(GraphService graphService)
@@ -23,13 +21,14 @@ namespace GraphDB.Pages
 
         public void OnGet()
         {
-            Message = IsDatabaseLoaded ? $"Current Database: {CurrentDatabase}" : "No database is currently loaded.";
+            Message = _graphService.IsDatabaseLoaded ? $"Current Database: {_graphService.GetDatabaseName()}" : "No database is currently loaded.";
+            Command = LoadCommandModelFromSession() ?? new CommandModel();
         }
 
         public IActionResult OnPostExecuteCommand()
         {
             var response = _graphService.ExecuteCypherCommands(Command.Command);
-            UpdateCommandHistory(Command.Command, response.ToString());
+            UpdateCommandHistory(Command.Command, response);
             return RedirectToPage();
         }
 
@@ -40,18 +39,62 @@ namespace GraphDB.Pages
             return RedirectToPage();
         }
 
-        public IActionResult OnPostDeleteHistory()
+        public IActionResult OnPostDeleteHistory(int commandIndex)
         {
-            Command.History.Clear();
-            SaveCommandModelToSession();
+            if (commandIndex >= 0 && commandIndex < Command.History.Count)
+            {
+                Command = LoadCommandModelFromSession();
+                Command.History.RemoveAt(commandIndex);
+                SaveCommandModelToSession();
+            }
             return RedirectToPage();
         }
 
-        private void UpdateCommandHistory(string command, string response)
+        //private void UpdateCommandHistory(string command, dynamic response)
+        //{
+        //    var responseString = response is string ? response : JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = true });
+        //    Command = LoadCommandModelFromSession() ?? new CommandModel();
+        //    Command.History.Insert(0, new CommandResponse { Command = command, Response = responseString });
+        //    SaveCommandModelToSession();
+        //}
+
+        //private void UpdateCommandHistory(string command, dynamic response)
+        //{
+        //    var responseString = "";
+        //    if (response is string)
+        //    {
+        //        responseString = response;
+        //    }
+        //    else if (response != null)
+        //    {
+        //        // Serialize the response to JSON with indentation if it's not a simple string
+        //        responseString = JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = true });
+        //    }
+
+        //    Command.History.Insert(0, new CommandResponse { Command = command, Response = responseString });
+        //    SaveCommandModelToSession();
+        //}
+
+        private void UpdateCommandHistory(string command, dynamic response)
         {
-            Command.History.Insert(0, new CommandResponse { Command = command, Response = response });
+            string responseString;
+            if (response is string)
+            {
+                responseString = response;
+            }
+            else if (response != null)
+            {
+                responseString = JsonSerializer.Serialize(response, new JsonSerializerOptions { WriteIndented = true });
+            }
+            else
+            {
+                responseString = "No data returned.";
+            }
+            Command = LoadCommandModelFromSession() ?? new CommandModel();
+            Command.History.Insert(0, new CommandResponse { Command = command, Response = responseString });
             SaveCommandModelToSession();
         }
+
 
         private void SaveCommandModelToSession()
         {
@@ -59,35 +102,10 @@ namespace GraphDB.Pages
             HttpContext.Session.SetString("CommandModel", modelJson);
         }
 
-        public IActionResult OnPostCreateDatabase(string databaseName)
+        private CommandModel LoadCommandModelFromSession()
         {
-            var result = _graphService.CreateDatabase(databaseName);
-            Message = result;
-            SaveCommandModelToSession();
-            return RedirectToPage();
-        }
-
-        public IActionResult OnPostLoadDatabase(string databaseName)
-        {
-            _graphService.LoadDatabase(databaseName);
-            Message = "Database loaded successfully.";
-            SaveCommandModelToSession();
-            return RedirectToPage();
-        }
-
-        public IActionResult OnPostSaveDatabase()
-        {
-            if (IsDatabaseLoaded)
-            {
-                _graphService.SaveCurrentGraph();
-                Message = "Database saved successfully.";
-            }
-            else
-            {
-                Message = "No database is loaded.";
-            }
-            SaveCommandModelToSession();
-            return RedirectToPage();
+            var sessionData = HttpContext.Session.GetString("CommandModel");
+            return sessionData != null ? JsonSerializer.Deserialize<CommandModel>(sessionData) : new CommandModel();
         }
     }
 

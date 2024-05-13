@@ -1,0 +1,27 @@
+{
+  "DataBaseName": "",
+  "_nodeIndex": {
+    "alice": [
+      {
+        "Id": "alice",
+        "Label": "Person",
+        "Properties": {
+          "name": "Alice"
+        }
+      }
+    ]
+  },
+  "_edgeIndex": {},
+  "Nodes": [
+    {
+      "Id": "alice",
+      "Label": "Person",
+      "Properties": {
+        "name": "Alice"
+      }
+    }
+  ],
+  "Edges": [],
+  "IsDatabaseLoaded": true,
+  "IsDatabaseNew": true
+}

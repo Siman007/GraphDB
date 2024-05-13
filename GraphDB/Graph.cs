@@ -10,7 +10,7 @@ namespace GraphDB
         private const string DefaultFilePath = "data";
         private readonly string _graphPath;
         private readonly string _graphName;
-        private bool _isDatabaseLoaded = flase;
+        private bool _isDatabaseLoaded = false;
         private bool _isDatabaseNew = true;
         public string DataBaseName = "";
 
@@ -26,7 +26,7 @@ namespace GraphDB
             _graphPath = Path.Combine(DefaultFilePath, $"{_graphName}.json");
             Nodes = new List<Node>();
             Edges = new List<Edge>();
-            LoadOrCreateGraph();
+            InitializeEmptyGraph(); //LoadOrCreateGraph();
         }
 
         public string GetDatabaseName()
@@ -36,7 +36,7 @@ namespace GraphDB
 
         public bool IsDatabaseLoaded => _isDatabaseLoaded;
         public bool IsDatabaseNew => _isDatabaseNew;
-;       
+       
         public void AddEdge(string fromId, string toId, double weight, string relationshipType, Dictionary<string, object> properties = null)
         {
             if (string.IsNullOrEmpty(fromId) || string.IsNullOrEmpty(toId)) return;
@@ -272,41 +272,52 @@ namespace GraphDB
             return neighbors.Distinct().ToList(); // Ensure unique nodes are returned if multiple edges connect to the same neighbor
         }
 
-        private void LoadOrCreateGraph()
+
+        public void loadNodes(List<Node> nodes)
         {
-            if (File.Exists(_graphPath))
-            {
-                try
-                {
-                    var json = File.ReadAllText(_graphPath);
-                    var graphData = JsonConvert.DeserializeObject<GraphData>(json);
-                    if (graphData == null) throw new JsonException("Deserialized graph data is null.");
-
-                    Nodes = graphData.Nodes ?? new List<Node>();
-                    Edges = graphData.Edges ?? new List<Edge>();
-                    foreach (var node in Nodes) UpdateNodeIndex(node);
-                    foreach (var edge in Edges) UpdateEdgeIndex(edge);
-
-                    _isDatabaseLoaded = true;
-                    _isDatabaseNew = false;
-                }
-                catch (JsonException ex)
-                {
-                    Console.WriteLine($"Failed to parse the graph data: {ex.Message}");
-                    InitializeEmptyGraph();
-
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"An error occurred while loading the graph: {ex.Message}");
-                    InitializeEmptyGraph();
-                }
-            }
-            else
-            {
-                InitializeEmptyGraph();
-            }
+            Nodes = nodes;
+            foreach (var node in Nodes) UpdateNodeIndex(node);
         }
+        public void loadEdges(List<Edge> edges)
+        {
+            Edges = edges;
+            foreach (var edge in Edges) UpdateEdgeIndex(edge);
+        }
+        //private void LoadOrCreateGraph()
+        //{
+        //    if (File.Exists(_graphPath))
+        //    {
+        //        try
+        //        {
+        //            var json = File.ReadAllText(_graphPath);
+        //            var graphData = JsonConvert.DeserializeObject<GraphData>(json);
+        //            if (graphData == null) throw new JsonException("Deserialized graph data is null.");
+
+        //            Nodes = graphData.Nodes ?? new List<Node>();
+        //            Edges = graphData.Edges ?? new List<Edge>();
+        //            foreach (var node in Nodes) UpdateNodeIndex(node);
+        //            foreach (var edge in Edges) UpdateEdgeIndex(edge);
+
+        //            _isDatabaseLoaded = true;
+        //            _isDatabaseNew = false;
+        //        }
+        //        catch (JsonException ex)
+        //        {
+        //            Console.WriteLine($"Failed to parse the graph data: {ex.Message}");
+        //            InitializeEmptyGraph();
+
+        //        }
+        //        catch (Exception ex)
+        //        {
+        //            Console.WriteLine($"An error occurred while loading the graph: {ex.Message}");
+        //            InitializeEmptyGraph();
+        //        }
+        //    }
+        //    else
+        //    {
+        //        InitializeEmptyGraph();
+        //    }
+        //}
         private void InitializeEmptyGraph()
         {
             Nodes = new List<Node>();
