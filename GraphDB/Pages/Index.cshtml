@@ -10,6 +10,8 @@
             commandHistory.forEach(function(item, index) {
                 createVueApp(index, item.response);
             });
+            // Set focus to the command input field
+            document.getElementById('commandInput').focus();
         });
 
         function createVueApp(elementIndex, responseData) {
@@ -25,6 +27,12 @@
                 }
             });
         }
+    function reExecuteCommand(command) {
+        // Set the command input value
+        document.getElementById('commandInput').value = command;
+        // Submit the form
+        document.getElementById('commandForm').submit();
+    }
 </script>
 }
 
@@ -32,14 +40,14 @@
 
 <!-- Database Status Display -->
 <section class="database-status">
-    <p>@(Model.IsDatabaseLoaded ? $"Current database: @Model.CurrentDatabase" : "No database is currently loaded.")</p>
+    <p>@(Model.IsDatabaseLoaded ? $"Current database: {Model.CurrentDatabase}" : "No database is currently loaded.")</p>
 </section>
 
 <!-- Command Input Form -->
 <section class="command-input">
-    <form method="post" asp-page-handler="ExecuteCommand" class="form-container">
+    <form  id="commandForm" method="post" asp-page-handler="ExecuteCommand" class="form-container">
         <div class="form-group flex-container">
-            <input type="text" asp-for="Command.Command" placeholder="Enter command" class="form-control flex-input" />
+            <input type="text" id="commandInput"  asp-for="Command.Command" placeholder="Enter command" class="form-control flex-input" />
             <button type="submit" class="btn btn-primary">Execute</button>
         </div>
     </form>
@@ -54,14 +62,24 @@
     {
         @foreach (var item in Model.Command.History.Select((value, index) => new { value, index }))
         {
-            <div class="command-response-box">
-                <p><strong>Command:</strong> @item.value.Command</p>
+            <div class="command-response-box d-flex flex-column justify-content-between">
+                <div class="command-top-container">
+                    <p><strong>Command:</strong> @item.value.Command</p>
+                    <button onclick="reExecuteCommand('@item.value.Command')" class="btn btn-secondary uniform-button">Re-execute</button>
+                </div>
                 <div id="@($"app-{item.index}")">
                     <!-- Vue will render the HTML content of itemResponse here -->
                     <pre v-html="formattedResponse"></pre>
                 </div>
+                <div class="delete-button-container">
+                    <!-- Delete Command Button -->
+                    <form method="post" asp-page-handler="DeleteCommand" asp-route-index="@item.index" class="delete-command-form">
+                        <button type="submit" class="btn btn-danger uniform-button">Delete</button>
+                    </form>
+                </div>
             </div>
         }
+
     }
     else
     {
