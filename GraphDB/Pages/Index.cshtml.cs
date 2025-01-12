@@ -6,6 +6,7 @@ using System.Linq;
 using System.IO;
 using GraphDB; // Assuming GraphDB is the namespace where Graph class is defined
 
+
 namespace GraphDB.Pages
 {
     public class IndexModel : PageModel
@@ -13,7 +14,7 @@ namespace GraphDB.Pages
         private readonly IHttpClientFactory _clientFactory;
 
         public string CurrentDatabase { get; private set; }
-        public bool IsDatabaseLoaded { get; private set; }
+        public bool IsDatabaseLoaded => GraphManager.IsDatabaseLoaded;
         public string Message { get; private set; }
 
 
@@ -27,8 +28,14 @@ namespace GraphDB.Pages
 
         public void OnGet()
         {
-            CurrentDatabase = HttpContext.Session.GetString("CurrentDatabase");
-            IsDatabaseLoaded = !string.IsNullOrEmpty(CurrentDatabase);
+            if (GraphManager.CurrentGraph == null)
+            {
+                Message = "No database is currently loaded.";
+                LoadCommandModelFromSession();
+                return;
+            }
+            CurrentDatabase = GraphManager.CurrentGraph.GetDatabaseName();
+
             Message = IsDatabaseLoaded ? $"Current Database: {CurrentDatabase}" : "No database is currently loaded.";
             LoadCommandModelFromSession();
         }
@@ -72,9 +79,9 @@ namespace GraphDB.Pages
             LoadCommandModelFromSession();
             if (string.IsNullOrWhiteSpace(command)) return;
 
-            if (!IsDatabaseLoaded && (command.StartsWith("create", System.StringComparison.OrdinalIgnoreCase) ||
-               command.StartsWith("load", System.StringComparison.OrdinalIgnoreCase) ||
-               command.StartsWith("delete", System.StringComparison.OrdinalIgnoreCase)))
+            if (!IsDatabaseLoaded && (command.StartsWith("create database", System.StringComparison.OrdinalIgnoreCase) ||
+               command.StartsWith("load database", System.StringComparison.OrdinalIgnoreCase) ||
+               command.StartsWith("delete database", System.StringComparison.OrdinalIgnoreCase)))
             {
                 HandleDatabaseManagementCommand(command);
             }
@@ -114,23 +121,77 @@ namespace GraphDB.Pages
             {
                 HandleDatabaseManagementCommand(command);
             }
-            else if (IsDatabaseLoaded)
+            else if (GraphManager.CurrentGraph != null && GraphManager.CurrentGraph.GetDatabaseLoaded())
             {
                 var client = _clientFactory.CreateClient();
-                var response = await client.GetStringAsync($"api/Graph/command?query={command}");
-                var encodedResponse = System.Web.HttpUtility.JavaScriptStringEncode(response);
-                Command.History.Insert(0, new CommandResponse { Command = command, Response = encodedResponse });
+                client.BaseAddress = new Uri("http://localhost:7211/"); 
+
+                var requestUri = $"api/Graph/command?query={command}";
+                var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+
+                try
+                {
+                    var response = await client.SendAsync(request);
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var jsonResponse = await response.Content.ReadAsStringAsync();
+                        // Deserialize into ApiResponse object
+                        var apiResponse = Newtonsoft.Json.JsonConvert.DeserializeObject<ApiResponse<object>>(jsonResponse);
 
 
-                // Assuming deserialization and error handling is done here
-                Command.History.Insert(0, new CommandResponse { Command = command, Response = response });
+                        if (apiResponse != null && apiResponse.Success)
+                        {
+                            var formattedMessage = $"Command executed successfully.\nMessage: {apiResponse.Message}\nData: {Newtonsoft.Json.JsonConvert.SerializeObject(apiResponse.Data, Newtonsoft.Json.Formatting.Indented)}";
+                            Command.History.Insert(0, new CommandResponse
+                            {
+                                Command = command,
+                                Response = formattedMessage,
+                                HasError = false
+                            });
+                        }
+                        else
+                        {
+                            Command.History.Insert(0, new CommandResponse
+                            {
+                                Command = command,
+                                Response = $"Error: {apiResponse?.Message ?? "An unknown error occurred."}",
+                                HasError = true
+                            });
+                        }
 
-                command = ""; // Reset command input
+
+
+                        // Add response to command history
+                       // Command.History.Insert(0, new CommandResponse { Command = command, Response = Newtonsoft.Json.formattedMessage, HasError = !apiResponse.Success });
+                    }
+                    else
+                    {
+                        Command.History.Insert(0, new CommandResponse
+                        {
+                            Command = command,
+                            Response = $"Error: {response.StatusCode} - {response.ReasonPhrase}"
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Handle any exceptions (e.g., network issues)
+                    Command.History.Insert(0, new CommandResponse
+                    {
+                        Command = command,
+                        Response = $"Error: Failed to execute command. Exception: {ex.Message}"
+                    });
+                }
+
+                // Reset command input
+                command = "";
+
+                // Serialize the updated Command object and save it back into the session
                 var modelJson = JsonSerializer.Serialize(Command);
                 HttpContext.Session.SetString("CommandModel", modelJson);
-
-          
             }
+
             else
             {
                 TempData["Error"] = "No database is loaded. Please load or create a database first. Type Help /h or ? for help";
@@ -140,47 +201,99 @@ namespace GraphDB.Pages
 
         private void HandleDatabaseManagementCommand(string command)
         {
-            var parts = command.Split(' ', 2);
+            var parts = command.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 2)
+            {
+                Console.WriteLine("Error: Invalid command format. Please provide a valid action and database name.");
+                return;
+            }
+
             var action = parts[0].ToLower();
-            var parameter = parts.Length > 1 ? parts[1] : string.Empty;
+            var parameter = parts[1].Trim();
+
+            if (string.IsNullOrEmpty(parameter))
+            {
+                Console.WriteLine("Error: Database name is required.");
+                return;
+            }
 
             switch (action)
             {
                 case "create":
-                    CreateDatabase(parameter);
+                    if (parameter.StartsWith("database", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var dbName = parameter.Substring(8).Trim();
+                        if (string.IsNullOrEmpty(dbName))
+                        {
+                            Console.WriteLine("Error: Please specify a valid database name.");
+                        }
+                        else
+                        {
+                            CreateDatabase(dbName);
+                            Console.WriteLine($"Database '{dbName}' created successfully.");
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine("Error: Unknown command. Did you mean 'CREATE DATABASE [dbname]'?");
+                    }
                     break;
+
                 case "load":
-                    LoadDatabase(parameter);
+                    if (parameter.StartsWith("database", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var dbName = parameter.Substring(8).Trim();
+                        if (string.IsNullOrEmpty(dbName))
+                        {
+                            Console.WriteLine("Error: Please specify a valid database name.");
+                        }
+                        else
+                        {
+                            var success = LoadDatabase(dbName);
+                            if (success)
+                            {
+                                Console.WriteLine($"Database '{dbName}' loaded successfully.");
+                            }
+                            else
+                            {
+                                Console.WriteLine($"Error: Database '{dbName}' could not be found.");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine("Error: Unknown command. Did you mean 'LOAD DATABASE [dbname]'?");
+                    }
                     break;
-                case "save":
-                    SaveDatabase();
-                    break;
+
                 case "close":
                     CloseDatabase();
+                    Console.WriteLine("Database closed successfully.");
                     break;
+
                 case "delete":
                     DeleteDatabase(parameter);
+                    Console.WriteLine($"Database '{parameter}' deleted successfully.");
+                    break;
+
+                default:
+                    Console.WriteLine("Error: Unknown command. Please use a valid database management command.");
                     break;
             }
         }
 
+
         private void CreateDatabase(string databaseName)
         {
-            // Logic to create a new database
-            // For simplicity, this just sets the session value
             LoadCommandModelFromSession(); // Ensure we have the latest history
-          
-            var graph = new Graph(databaseName);
 
-          
-            Command.History.Insert(0, new CommandResponse { Command = $"create {databaseName}", Response = graph.CreateDatabase()});
+            var graph = new Graph(databaseName);
+            Command.History.Insert(0, new CommandResponse { Command = $"create database {databaseName}", Response = graph.CreateDatabase() });
+
             if (graph.GetDatabaseLoaded())
             {
+                GraphManager.SetCurrentGraph(graph); // Use the method to set the current graph
                 HttpContext.Session.SetString("CurrentDatabase", databaseName);
-            }
-            else
-            {
-
             }
 
             // Serialize the updated Command object and save it back into the session
@@ -188,10 +301,20 @@ namespace GraphDB.Pages
             HttpContext.Session.SetString("CommandModel", modelJson);
         }
 
-        private void LoadDatabase(string databaseName)
+
+        private bool LoadDatabase(string databaseName)
         {
             LoadCommandModelFromSession(); // Ensure we have the latest history
-            HttpContext.Session.SetString("CurrentDatabase", databaseName);
+            var graph = new Graph(databaseName);
+            var success = graph.LoadGraph();
+
+            if (success)
+            {
+                GraphManager.SetCurrentGraph(graph); // Use the method to set the current graph
+                HttpContext.Session.SetString("CurrentDatabase", databaseName);
+            }
+
+            return success;
         }
 
         private void SaveDatabase()
@@ -205,15 +328,21 @@ namespace GraphDB.Pages
         private void CloseDatabase()
         {
             HttpContext.Session.Remove("CurrentDatabase");
+            GraphManager.SetCurrentGraph(null); // Use the method to set the current graph
         }
+
 
         private void DeleteDatabase(string databaseName)
         {
             if (CurrentDatabase != databaseName) return;
 
             CloseDatabase();
-            System.IO.File.Delete(Graph.GetDatabasePath());
+
+            // Use the current graph instance from GraphManager to get the database path
+            var graphPath = GraphManager.CurrentGraph.GetDatabasePath();
+            System.IO.File.Delete(graphPath);
         }
+
 
         public IActionResult OnPostDeleteCommand(int commandIndex)
         {

@@ -12,4 +12,12 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="CsvHelper" Version="31.0.2" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Remove="data\%28n1:Person {id: %271%27, name: %27Alice%27, age: 30}%29.json" />
+    <Content Remove="data\%28n2:Person {id: %272%27, name: %27Bob%27, age: 25}%29.json" />
+    <Content Remove="data\test.json" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\.editorconfig" />
+  </ItemGroup>
 </Project>

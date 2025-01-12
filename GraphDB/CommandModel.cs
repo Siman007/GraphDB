@@ -14,5 +14,7 @@ namespace GraphDB
         public bool HasError { get; set; }
         public string ErrorMessage { get; set; }
     }
+
+   
 }
 

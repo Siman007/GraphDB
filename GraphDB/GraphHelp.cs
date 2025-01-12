@@ -6,6 +6,7 @@ namespace GraphDB
     {
         private static readonly Dictionary<string, string> commandHelp = new Dictionary<string, string>()
         {
+            
             ["CREATE NODE"] = "Creates a node with specified properties.\nExample: CREATE NODE {id: '1', label: 'Person', properties: {name: 'Alice', age: 30}}",
             ["MERGE NODE"] = "Merges a node by id, creating it if it does not exist, or updating it if it does.\nExample: MERGE NODE {id: '1', properties: {name: 'Alice', age: 31}}",
             ["DELETE NODE"] = "Deletes a node by its ID or label.\nExample: DELETE NODE {id: '1'}\nDELETE NODE {label: 'Person'}",
@@ -218,6 +219,10 @@ MATCH Command Help:
         {
             return @"
 GraphDB Command Syntax:
+
+Database commands:
+- CREATE DATABASE: Creates a database of name [dbname], eg. CREATE DATABASE mydatabase  - will create the database called 'mydatabase'
+- LOAD DATABASE: Loads a database of name [dbname], eg. LOAD DATABASE mydatabase  - will load the database called 'mydatabase'
 
 Node Operations:
 - CREATE NODE: Creates a node with specified properties. Use HELP CREATE NODE for more.

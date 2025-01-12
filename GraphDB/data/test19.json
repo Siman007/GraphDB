@@ -1,0 +1,13 @@
+{
+  "Nodes": [
+    {
+      "Id": "n1",
+      "Label": null,
+      "Properties": {
+        "id": "1",
+        "name": "Alice"
+      }
+    }
+  ],
+  "Edges": []
+}

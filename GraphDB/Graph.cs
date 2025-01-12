@@ -19,9 +19,46 @@ using System.Data;
 
 namespace GraphDB
     {
+    public static class GraphManager
+    {
+        private static Graph? _currentGraph;
+
+        public static bool IsDatabaseLoaded => _currentGraph?.GetDatabaseLoaded() == true;
+
+        public static Graph CurrentGraph
+        {
+            get => _currentGraph;
+            private set => _currentGraph = value; // Private setter ensures only GraphManager can modify it
+        }
+
+        public static void SetCurrentGraph(Graph graph)
+        {
+            CurrentGraph = graph; // This will use the private setter
+        }
+        public static void LoadGraph(string graphName)
+        {
+            _currentGraph = new Graph(graphName);
+            if (!_currentGraph.LoadGraph())
+            {
+                Console.WriteLine($"Failed to load database: {graphName}. Initializing a new graph.");
+            }
+        }
+
+        public static void CreateGraph(string graphName)
+        {
+            _currentGraph = new Graph(graphName);
+            _currentGraph.CreateDatabase();
+        }
+
+        public static void UnloadGraph()
+        {
+            _currentGraph = null;
+            Console.WriteLine("Database unloaded.");
+        }
+    }
 
 
-        public class Graph
+    public class Graph
         {
             private const string DefaultFilePath = "data"; // Relative path to store graph data
             private static string _graphPath="";
@@ -94,12 +131,12 @@ namespace GraphDB
         }
 
 
-        public static string GetDatabaseName()
+        public  string GetDatabaseName()
         {
             return _graphName;
             
         }
-        public static  string GetDatabasePath()
+        public   string GetDatabasePath()
         {
             return _graphPath;
         }
@@ -188,7 +225,8 @@ namespace GraphDB
 
         private ApiResponse<RelationshipResponse> HandleCreateRelationship(string cypher)
         {
-            var pattern = new Regex(@"CREATE \((\w+)\)-\[:(\w+)\]->\((\w+)\) \{(.*)\}", RegexOptions.IgnoreCase);
+            // Updated regex to match relationships with or without properties
+            var pattern = new Regex(@"CREATE \((\w+)\)-\[:(\w+)\]->\((\w+)\)(?: \{(.*)\})?", RegexOptions.IgnoreCase);
             var match = pattern.Match(cypher);
             if (!match.Success)
             {
@@ -198,7 +236,7 @@ namespace GraphDB
             string fromNodeId = match.Groups[1].Value;
             string relationshipType = match.Groups[2].Value;
             string toNodeId = match.Groups[3].Value;
-            var propertiesString = match.Groups[4].Value;
+            string propertiesString = match.Groups[4].Success ? match.Groups[4].Value : null; // Handle optional properties
 
             var fromNode = Nodes.FirstOrDefault(n => n.Id == fromNodeId);
             var toNode = Nodes.FirstOrDefault(n => n.Id == toNodeId);
@@ -207,7 +245,7 @@ namespace GraphDB
                 return ApiResponse<RelationshipResponse>.ErrorResponse("One or both specified nodes do not exist.");
             }
 
-            var properties = ParseProperties(propertiesString);
+            var properties = !string.IsNullOrEmpty(propertiesString) ? ParseProperties(propertiesString) : new Dictionary<string, object>();
             var existingEdge = Edges.FirstOrDefault(e => e.FromId == fromNodeId && e.ToId == toNodeId && e.RelationshipType == relationshipType);
             if (existingEdge != null)
             {
@@ -219,7 +257,7 @@ namespace GraphDB
                 FromId = fromNodeId,
                 ToId = toNodeId,
                 RelationshipType = relationshipType,
-                Properties = properties.ToDictionary(kvp => kvp.Key, kvp => (object)kvp.Value) // Ensure properties are correctly typed as object
+                Properties = properties
             };
             Edges.Add(edge);
             SaveToFile();
@@ -235,6 +273,7 @@ namespace GraphDB
 
             return ApiResponse<RelationshipResponse>.SuccessResponse(relationshipResponse, $"Created relationship of type {relationshipType} from {fromNodeId} to {toNodeId}.");
         }
+
 
 
 
@@ -531,16 +570,44 @@ namespace GraphDB
 
 
 
-       
 
+
+        //private Dictionary<string, object> ParseProperties(string propertiesString)
+        //{
+        //    var properties = new Dictionary<string, object>();
+        //    var propsMatches = Regex.Matches(propertiesString, @"(\w+): '([^']*)'");
+        //    foreach (Match match in propsMatches)
+        //    {
+        //        properties[match.Groups[1].Value] = match.Groups[2].Value;
+        //    }
+        //    return properties;
+        //}
         private Dictionary<string, object> ParseProperties(string propertiesString)
         {
             var properties = new Dictionary<string, object>();
-            var propsMatches = Regex.Matches(propertiesString, @"(\w+): '([^']*)'");
+
+            // Match key-value pairs in the format: key: 'value' or key: number
+            var propsMatches = Regex.Matches(propertiesString, @"(\w+):\s*'([^']*)'|(\w+):\s*([0-9]+(?:\.[0-9]+)?)");
+
             foreach (Match match in propsMatches)
             {
-                properties[match.Groups[1].Value] = match.Groups[2].Value;
+                if (match.Groups[1].Success && match.Groups[2].Success) // String value
+                {
+                    properties[match.Groups[1].Value] = match.Groups[2].Value;
+                }
+                else if (match.Groups[3].Success && match.Groups[4].Success) // Numeric value
+                {
+                    if (match.Groups[4].Value.Contains("."))
+                    {
+                        properties[match.Groups[3].Value] = double.Parse(match.Groups[4].Value);
+                    }
+                    else
+                    {
+                        properties[match.Groups[3].Value] = int.Parse(match.Groups[4].Value);
+                    }
+                }
             }
+
             return properties;
         }
 
@@ -1107,8 +1174,9 @@ namespace GraphDB
         private string HandleMatchCommand(string cypher)
         {
             var nodePattern = new Regex(@"MATCH \((\w+):?(\w*) \{?([^}]*)\}?\)", RegexOptions.IgnoreCase);
-            var relationshipPattern = new Regex(@"MATCH \((\w+):?(\w*)\)-\[(\w+):?(\w*)\]->\((\w+):?(\w*)\)", RegexOptions.IgnoreCase);
+            //var relationshipPattern = new Regex(@"MATCH \((\w+):?(\w*)\)-\[(\w+):?(\w*)\]->\((\w+):?(\w*)\)", RegexOptions.IgnoreCase);
             var pathPattern = new Regex(@"MATCH (\w+) = \((\w+):?(\w*)\)-\[:(\w+)\*(\d*)\.\.(\d*)\]->\((\w+):?(\w*)\)", RegexOptions.IgnoreCase);
+            var relationshipPattern = new Regex( @"MATCH \((\w+):?(\w*)\)-\[(\w*):?(\w*)\](?: \{(.*)\})?->\((\w+):?(\w*)\)", RegexOptions.IgnoreCase);
             var wherePattern = new Regex(@"WHERE (.+)", RegexOptions.IgnoreCase);
             var returnPattern = new Regex(@"RETURN (.+)", RegexOptions.IgnoreCase);
             var aggregationPattern = new Regex(@"(COUNT|SUM|AVG|MIN|MAX)\((\w+)\)", RegexOptions.IgnoreCase);
@@ -1428,15 +1496,23 @@ namespace GraphDB
                     var match = relationshipPattern.Match(cypher);
                     string startVariable = match.Groups[1].Value;
                     string startLabel = match.Groups[2].Value;
-                    string relationshipType = match.Groups[3].Value;
-                    string endVariable = match.Groups[4].Value;
-                    string endLabel = match.Groups[5].Value;
+                    string relationshipType = match.Groups[4].Value;
+                    string endVariable = match.Groups[6].Value;
+                    string endLabel = match.Groups[7].Value;
+                    string propertiesString = match.Groups[5].Value; // Captured properties
 
-                    // Filter edges by relationship type and node labels
+                    var properties = new Dictionary<string, object>();
+                    if (!string.IsNullOrEmpty(propertiesString))
+                    {
+                        properties = ParseProperties(propertiesString); // Use existing ParseProperties method
+                    }
+
+                    // Filter edges by relationship type, node labels, and properties
                     var matchingEdges = Edges.Where(e =>
                                 (string.IsNullOrEmpty(relationshipType) || e.RelationshipType == relationshipType) &&
                                 (string.IsNullOrEmpty(startLabel) || Nodes.Any(n => n.Id == e.FromId && n.Label == startLabel)) &&
-                                (string.IsNullOrEmpty(endLabel) || Nodes.Any(n => n.Id == e.ToId && n.Label == endLabel)))
+                                (string.IsNullOrEmpty(endLabel) || Nodes.Any(n => n.Id == e.ToId && n.Label == endLabel)) &&
+                                properties.All(p => e.Properties.ContainsKey(p.Key) && e.Properties[p.Key].ToString() == p.Value.ToString()))
                             .ToList();
 
                     if (matchingEdges.Count == 0)
@@ -1446,8 +1522,10 @@ namespace GraphDB
                         $"Edge(From: {e.FromId}, To: {e.ToId}, Relationship: {e.RelationshipType}, Properties: {JsonConvert.SerializeObject(e.Properties)})")
                         .ToList();
 
-                    return $"Found {matchingEdges.Count} relationships:\n" + string.Join("\n", result);
+                    //return $"Found {matchingEdges.Count} relationships:\n" + string.Join("\n", result);
+                    return JsonConvert.SerializeObject(ApiResponse<List<string>>.SuccessResponse(result, $"Found {matchingEdges.Count} relationships."));
                 }
+            
                 else
                 {
                     results.Add("Invalid MATCH syntax.");
@@ -1952,6 +2030,9 @@ namespace GraphDB
         {
             try
             {
+                Console.WriteLine($"Saving graph to path: {_graphPath}");
+                Console.WriteLine($"Nodes count: {Nodes.Count}, Edges count: {Edges.Count}");
+
                 // Create a GraphData object that directly uses the current lists of nodes and edges.
                 // There's no need to recreate the Edge objects if they already have the correct structure.
                 var graphData = new GraphData
@@ -1978,13 +2059,13 @@ namespace GraphDB
         }
 
 
-        public void LoadGraph()
+        public bool LoadGraph()
             {
                 isDatabaseLoaded = false;
                 if (!File.Exists(_graphPath))
                 {
                     Console.WriteLine("Graph file does not exist, initializing a new graph.");
-                    return;
+                    return false;
                 }
 
                 try
@@ -2009,6 +2090,7 @@ namespace GraphDB
                 {
                     Console.Error.WriteLine($"Failed to load the graph from {_graphPath}: {ex.Message}");
                 }
+            return isDatabaseLoaded;
             }
 
         }
