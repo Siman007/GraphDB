@@ -7,7 +7,7 @@ namespace GraphDB
         CreateNode,
         MergeNode,
         CreateRelationship,
-        MatchNode,
+        MatchCommand,
         MatchRelationship,
         DeleteNode,
         DetachDeleteNode,
@@ -46,7 +46,7 @@ namespace GraphDB
             if (cypher.StartsWith("MATCH") && cypher.Contains(")-[") && cypher.Contains("]->("))
                 return CypherCommandType.MatchRelationship;
             if (cypher.StartsWith("MATCH"))
-                return CypherCommandType.MatchNode;
+                return CypherCommandType.MatchCommand;
             if (cypher.StartsWith("DELETE"))
                 return CypherCommandType.DeleteNode;
             if (cypher.StartsWith("DETACH DELETE"))

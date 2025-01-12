@@ -15,6 +15,7 @@ using System.Globalization;
 using System.Text;
 using Microsoft.AspNetCore.Mvc;
 using GraphDB;
+using System.Data;
 
 namespace GraphDB
     {
@@ -48,8 +49,8 @@ namespace GraphDB
                     return HandleMergeNode(cypher);
                 case CypherCommandType.CreateRelationship:
                     return HandleCreateRelationship(cypher);
-                case CypherCommandType.MatchNode:
-                    return HandleMatchNode(cypher);
+                case CypherCommandType.MatchCommand:
+                    return HandleMatchCommand(cypher);
                 case CypherCommandType.MatchRelationship:
                     return HandleMatchRelationship(cypher);
                 case CypherCommandType.DeleteNode:
@@ -925,44 +926,719 @@ namespace GraphDB
             return $"Found {matchingRelationships.Count} relationships of type {relationshipType} matching {propertyName} = {propertyValue}.";
         }
 
-        private string HandleMatchNode(string cypher)
+        //private string HandleMatchNode(string cypher)
+        //{
+        //    var pattern = new Regex(@"MATCH \((\w+):(\w+) \{(.+): '(.+)'\}\)", RegexOptions.IgnoreCase);
+        //    var match = pattern.Match(cypher);
+        //    if (!match.Success) return "Invalid MATCH syntax for node.";
+
+        //    string label = match.Groups[2].Value; // Example uses label, which you may or may not need.
+        //    string propertyName = match.Groups[3].Value;
+        //    string propertyValue = match.Groups[4].Value;
+
+        //    var matchingNodes = Nodes.Where(n => n.Properties.ContainsKey(propertyName) && n.Properties[propertyName].ToString() == propertyValue).ToList();
+
+        //    return $"Found {matchingNodes.Count} nodes matching {propertyName} = {propertyValue}.";
+        //}
+
+        //private string HandleMatchNode(string cypher)
+        //{
+        //    var pattern = new Regex(@"MATCH \((\w+):(\w+) \{(.+): '(.+)'\}\)", RegexOptions.IgnoreCase);
+        //    var match = pattern.Match(cypher);
+        //    if (!match.Success) return "Invalid MATCH syntax for node.";
+
+        //    string variable = match.Groups[1].Value;
+        //    string label = match.Groups[2].Value;
+        //    string propertyName = match.Groups[3].Value;
+        //    string propertyValue = match.Groups[4].Value;
+
+        //    var matchingNodes = Nodes.Where(n => n.Label == label
+        //                                      && n.Properties.ContainsKey(propertyName)
+        //                                      && n.Properties[propertyName].ToString() == propertyValue).ToList();
+
+        //    if (matchingNodes.Count == 0)
+        //    {
+        //        return "No matching nodes found.";
+        //    }
+
+        //    var result = matchingNodes.Select(n =>
+        //        $"Node(Id: {n.Id}, Label: {n.Label}, Properties: {JsonConvert.SerializeObject(n.Properties)})")
+        //        .ToList();
+
+        //    return $"Found {matchingNodes.Count} nodes:\n" + string.Join("\n", result);
+        //}
+        //private string HandleMatchCommand(string cypher)
+        //{
+        //    var nodePattern = new Regex(@"MATCH \((\w+):?(\w*) \{?([^}]*)\}?\)", RegexOptions.IgnoreCase);
+        //    var relationshipPattern = new Regex(@"MATCH \((\w+):?(\w*)\)-\[:(\w+)\]-(\w+):?(\w*)", RegexOptions.IgnoreCase);
+        //    var pathPattern = new Regex(@"MATCH (\w+) = \((\w+):?(\w*)\)-\[:(\w+)\*(\d*)\.\.(\d*)\]->\((\w+):?(\w*)\)", RegexOptions.IgnoreCase);
+        //    var wherePattern = new Regex(@"WHERE (.+)", RegexOptions.IgnoreCase);
+        //    var returnPattern = new Regex(@"RETURN (.+)", RegexOptions.IgnoreCase);
+
+        //    var results = new List<string>();
+
+        //    // Extract and process WHERE clause if present
+        //    var whereClause = wherePattern.Match(cypher).Groups[1].Value;
+        //    Func<Node, bool> nodeCondition = n => true; // Default condition: always true
+
+        //    if (!string.IsNullOrEmpty(whereClause))
+        //    {
+        //        // Basic implementation for equality conditions in WHERE clause
+        //        var conditions = whereClause.Split(new[] { " AND ", " OR " }, StringSplitOptions.RemoveEmptyEntries)
+        //                                    .Select(c => c.Split(new[] { '=', '>', '<' }))
+        //                                    .Select(parts => new
+        //                                    {
+        //                                        Property = parts[0].Trim(),
+        //                                        Operator = whereClause.Contains("=") ? "=" :
+        //                                                   whereClause.Contains(">") ? ">" :
+        //                                                   "<", // Add other operators as needed
+        //                                        Value = parts[1].Trim().Trim('\'')
+        //                                    })
+        //                                    .ToList();
+
+        //        nodeCondition = n => conditions.All(cond =>
+        //            n.Properties.ContainsKey(cond.Property) &&
+        //            n.Properties[cond.Property].ToString() == cond.Value); // Add proper operator handling
+        //    }
+
+        //    // Extract and process RETURN clause if present
+        //    var returnClause = returnPattern.Match(cypher).Groups[1].Value.Split(',').Select(r => r.Trim()).ToList();
+
+        //    if (nodePattern.IsMatch(cypher))
+        //    {
+        //        var match = nodePattern.Match(cypher);
+        //        string variable = match.Groups[1].Value;
+        //        string label = match.Groups[2].Value;
+        //        var propertiesString = match.Groups[3].Value;
+
+        //        // Parse properties if provided
+        //        var properties = string.IsNullOrEmpty(propertiesString) ?
+        //            new Dictionary<string, string>() :
+        //            propertiesString.Split(',')
+        //                            .Select(p => p.Split(':'))
+        //                            .ToDictionary(
+        //                                p => p[0].Trim(),
+        //                                p => p[1].Trim().Trim('\'')
+        //                            );
+
+        //        // Filter nodes by label (if specified) and properties, and apply WHERE condition
+        //        var matchingNodes = Nodes.Where(n => (string.IsNullOrEmpty(label) || n.Label == label) &&
+        //                                             properties.All(p => n.Properties.ContainsKey(p.Key) &&
+        //                                                                 n.Properties[p.Key].ToString() == p.Value) &&
+        //                                             nodeCondition(n))
+        //                                 .ToList();
+
+        //        if (matchingNodes.Count == 0)
+        //            results.Add("No matching nodes found.");
+        //        else
+        //        {
+        //            var formattedResults = matchingNodes.Select(n =>
+        //            {
+        //                if (returnClause.Count == 0 || returnClause.Contains(variable))
+        //                    return $"Node(Id: {n.Id}, Label: {n.Label}, Properties: {JsonConvert.SerializeObject(n.Properties)})";
+
+        //                var filteredProperties = n.Properties.Where(p => returnClause.Contains(p.Key))
+        //                                                     .ToDictionary(k => k.Key, v => v.Value);
+        //                return $"Node(Id: {n.Id}, Properties: {JsonConvert.SerializeObject(filteredProperties)})";
+        //            });
+
+        //            results.AddRange(formattedResults);
+        //        }
+        //    }
+        //    else if (relationshipPattern.IsMatch(cypher))
+        //    {
+        //        var match = relationshipPattern.Match(cypher);
+        //        string startVariable = match.Groups[1].Value;
+        //        string startLabel = match.Groups[2].Value;
+        //        string relationshipType = match.Groups[3].Value;
+        //        string endVariable = match.Groups[4].Value;
+        //        string endLabel = match.Groups[5].Value;
+
+        //        var matchingEdges = Edges.Where(e => (string.IsNullOrEmpty(relationshipType) || e.RelationshipType == relationshipType) &&
+        //                                             (string.IsNullOrEmpty(startLabel) || Nodes.Any(n => n.Id == e.FromId && n.Label == startLabel)) &&
+        //                                             (string.IsNullOrEmpty(endLabel) || Nodes.Any(n => n.Id == e.ToId && n.Label == endLabel)))
+        //                                 .ToList();
+
+        //        if (matchingEdges.Count == 0)
+        //            results.Add("No matching relationships found.");
+        //        else
+        //        {
+        //            var formattedResults = matchingEdges.Select(e =>
+        //            {
+        //                if (returnClause.Count == 0 || returnClause.Contains(startVariable) || returnClause.Contains(endVariable))
+        //                    return $"Edge(From: {e.FromId}, To: {e.ToId}, Relationship: {e.RelationshipType}, Properties: {JsonConvert.SerializeObject(e.Properties)})";
+
+        //                return string.Empty;
+        //            });
+
+        //            results.AddRange(formattedResults.Where(r => !string.IsNullOrEmpty(r)));
+        //        }
+        //    }
+        //    else if (pathPattern.IsMatch(cypher))
+        //    {
+        //        var match = pathPattern.Match(cypher);
+        //        string pathVariable = match.Groups[1].Value;
+        //        string startVariable = match.Groups[2].Value;
+        //        string startLabel = match.Groups[3].Value;
+        //        string relationshipType = match.Groups[4].Value;
+        //        int minLength = int.Parse(match.Groups[5].Value);
+        //        int maxLength = int.Parse(match.Groups[6].Value);
+        //        string endVariable = match.Groups[7].Value;
+        //        string endLabel = match.Groups[8].Value;
+
+        //        var paths = FindPaths(startLabel, relationshipType, endLabel, minLength, maxLength);
+
+        //        if (paths.Count == 0)
+        //            results.Add("No matching paths found.");
+        //        else
+        //        {
+        //            var formattedPaths = paths.Select(p =>
+        //                $"Path: {string.Join(" -> ", p.Select(n => $"Node(Id: {n.Id}, Label: {n.Label})"))}");
+
+        //            results.AddRange(formattedPaths);
+        //        }
+        //    }
+        //    else
+        //    {
+        //        results.Add("Invalid MATCH syntax.");
+        //    }
+
+        //    return string.Join("\n", results);
+        //}
+
+
+
+        private string HandleMatchCommand(string cypher)
         {
-            var pattern = new Regex(@"MATCH \((\w+):(\w+) \{(.+): '(.+)'\}\)", RegexOptions.IgnoreCase);
-            var match = pattern.Match(cypher);
-            if (!match.Success) return "Invalid MATCH syntax for node.";
+            var nodePattern = new Regex(@"MATCH \((\w+):?(\w*) \{?([^}]*)\}?\)", RegexOptions.IgnoreCase);
+            var relationshipPattern = new Regex(@"MATCH \((\w+):?(\w*)\)-\[(\w+):?(\w*)\]->\((\w+):?(\w*)\)", RegexOptions.IgnoreCase);
+            var pathPattern = new Regex(@"MATCH (\w+) = \((\w+):?(\w*)\)-\[:(\w+)\*(\d*)\.\.(\d*)\]->\((\w+):?(\w*)\)", RegexOptions.IgnoreCase);
+            var wherePattern = new Regex(@"WHERE (.+)", RegexOptions.IgnoreCase);
+            var returnPattern = new Regex(@"RETURN (.+)", RegexOptions.IgnoreCase);
+            var aggregationPattern = new Regex(@"(COUNT|SUM|AVG|MIN|MAX)\((\w+)\)", RegexOptions.IgnoreCase);
+            var groupByPattern = new Regex(@"GROUP BY (\w+)", RegexOptions.IgnoreCase);
+            var orderByPattern = new Regex(@"ORDER BY (\w+)\s*(ASC|DESC)?", RegexOptions.IgnoreCase);
+            var limitPattern = new Regex(@"\bLIMIT\s+(\d+)", RegexOptions.IgnoreCase);
+            var offsetPattern = new Regex(@"\bOFFSET\s+(\d+)", RegexOptions.IgnoreCase);
+            var unionPattern = new Regex(@"\bUNION(?: ALL)?\b", RegexOptions.IgnoreCase);
+            var intersectPattern = new Regex(@"\bINTERSECT\b", RegexOptions.IgnoreCase);
+            var exceptPattern = new Regex(@"\bEXCEPT\b", RegexOptions.IgnoreCase);
+            var nestedUnionPattern = new Regex(@"\((.*?UNION.*)\)", RegexOptions.IgnoreCase);
 
-            string label = match.Groups[2].Value; // Example uses label, which you may or may not need.
-            string propertyName = match.Groups[3].Value;
-            string propertyValue = match.Groups[4].Value;
+            var results = new List<string>();
 
-            var matchingNodes = Nodes.Where(n => n.Properties.ContainsKey(propertyName) && n.Properties[propertyName].ToString() == propertyValue).ToList();
-
-            return $"Found {matchingNodes.Count} nodes matching {propertyName} = {propertyValue}.";
-        }
-
-
-       
-
-        public List<(Node, Node)> MatchPattern(Func<Node, bool> startCondition, string relationshipType, Func<Node, bool> endCondition)
-        {
-            var matches = new List<(Node, Node)>();
-            foreach (var edge in Edges.Where(e => e.Relationship.Equals(relationshipType, StringComparison.OrdinalIgnoreCase)))
+            try
             {
-                var fromNode = Nodes.FirstOrDefault(n => n.Id == edge.FromId);
-                var toNode = Nodes.FirstOrDefault(n => n.Id == edge.ToId);
-                if (fromNode != null && toNode != null && startCondition(fromNode) && endCondition(toNode))
+                // Check if the query contains a nested UNION query
+                var nestedUnionMatch = nestedUnionPattern.Match(cypher);
+                if (nestedUnionMatch.Success)
                 {
-                    matches.Add((fromNode, toNode));
+                    var nestedUnionQuery = nestedUnionMatch.Groups[1].Value;
+
+                    // Recursively process the nested UNION query
+                    var nestedUnionResult = HandleMatchCommand(nestedUnionQuery);
+
+                    // Replace the nested UNION query in the main query with its result
+                    cypher = cypher.Replace($"({nestedUnionQuery})", nestedUnionResult);
                 }
+
+                // Check if the query contains an EXCEPT clause
+                if (exceptPattern.IsMatch(cypher))
+                {
+                    var exceptQueries = exceptPattern.Split(cypher).Select(q => q.Trim()).ToList();
+
+                    if (exceptQueries.Count != 2)
+                        throw new Exception("EXCEPT queries must have exactly two sub-queries.");
+
+                    // Process the first and second sub-queries
+                    var firstQueryResult = HandleMatchCommand(exceptQueries[0]).Split('\n').ToHashSet();
+                    var secondQueryResult = HandleMatchCommand(exceptQueries[1]).Split('\n').ToHashSet();
+
+                    // Perform set difference: elements in the first result but not in the second
+                    var differenceResults = firstQueryResult.Except(secondQueryResult).ToList();
+
+                    return string.Join("\n", differenceResults);
+                }
+
+                // Check if the query contains an INTERSECT clause
+                if (intersectPattern.IsMatch(cypher))
+                {
+                    var intersectQueries = intersectPattern.Split(cypher).Select(q => q.Trim()).ToList();
+                    var intersectResults = new List<HashSet<string>>();
+
+                    foreach (var query in intersectQueries)
+                    {
+                        var queryResult = HandleMatchCommand(query);
+                        intersectResults.Add(new HashSet<string>(queryResult.Split('\n')));
+                    }
+
+                    // Perform intersection of results from all sub-queries
+                    var commonResults = intersectResults.Aggregate((set1, set2) => set1.Intersect(set2).ToHashSet());
+
+                    return string.Join("\n", commonResults);
+                }
+
+                // Check if the query contains a UNION or UNION ALL clause
+                if (unionPattern.IsMatch(cypher))
+                {
+                    var unionQueries = unionPattern.Split(cypher).Select(q => q.Trim()).ToList();
+                    var unionResults = new List<string>();
+
+                    foreach (var query in unionQueries)
+                    {
+                        var queryResult = HandleMatchCommand(query);
+                        unionResults.AddRange(queryResult.Split('\n'));
+                    }
+
+                    // Check if it's UNION or UNION ALL (default is UNION)
+                    bool isUnionAll = cypher.Contains("UNION ALL", StringComparison.OrdinalIgnoreCase);
+
+                    // Combine results: UNION removes duplicates, UNION ALL allows duplicates
+                    var combinedResults = isUnionAll ? unionResults : unionResults.Distinct().ToList();
+
+                    return string.Join("\n", combinedResults);
+                }
+
+                // Extract and process WHERE clause if present
+                var whereMatch = wherePattern.Match(cypher);
+                var whereClause = whereMatch.Success ? whereMatch.Groups[1].Value : null;
+                Func<Node, bool> nodeCondition = n => true;
+
+                if (!string.IsNullOrEmpty(whereClause))
+                {
+                    var conditions = whereClause.Split(new[] { " AND ", " OR " }, StringSplitOptions.RemoveEmptyEntries)
+                                                .Select(condition =>
+                                                {
+                                                    var match = Regex.Match(condition, @"(\w+)\s*(=|<>|>=|<=|>|<)\s*'(.+)'");
+                                                    if (!match.Success) return null;
+
+                                                    return new
+                                                    {
+                                                        Property = match.Groups[1].Value.Trim(),
+                                                        Operator = match.Groups[2].Value.Trim(),
+                                                        Value = match.Groups[3].Value.Trim()
+                                                    };
+                                                })
+                                                .Where(c => c != null)
+                                                .ToList();
+
+                    nodeCondition = n => conditions.All(cond =>
+                    {
+                        if (!n.Properties.ContainsKey(cond.Property)) return false;
+
+                        var propertyValue = n.Properties[cond.Property].ToString();
+
+                        return cond.Operator switch
+                        {
+                            "=" => propertyValue == cond.Value,
+                            "<>" => propertyValue != cond.Value,
+                            ">" => string.Compare(propertyValue, cond.Value) > 0,
+                            "<" => string.Compare(propertyValue, cond.Value) < 0,
+                            ">=" => string.Compare(propertyValue, cond.Value) >= 0,
+                            "<=" => string.Compare(propertyValue, cond.Value) <= 0,
+                            _ => false
+                        };
+                    });
+                }
+
+                // Extract and process RETURN clause if present
+                var returnMatch = returnPattern.Match(cypher);
+                var returnClause = returnMatch.Success
+                    ? returnMatch.Groups[1].Value.Split(',').Select(r => r.Trim()).ToList()
+                    : new List<string>();
+
+                // Detect if query contains GROUP BY clause
+                var groupByMatch = groupByPattern.Match(cypher);
+                var groupByProperty = groupByMatch.Success ? groupByMatch.Groups[1].Value : null;
+
+                // Detect if query contains ORDER BY clause
+                var orderByMatch = orderByPattern.Match(cypher);
+                var orderByProperty = orderByMatch.Success ? orderByMatch.Groups[1].Value : null;
+                var orderByDirection = orderByMatch.Success && orderByMatch.Groups[2].Value.ToUpper() == "DESC" ? "DESC" : "ASC";
+
+                var isAggregation = aggregationPattern.IsMatch(cypher);
+                var aggregationResults = new List<string>();
+
+                if (nodePattern.IsMatch(cypher))
+                {
+                    var match = nodePattern.Match(cypher);
+                    string variable = match.Groups[1].Value;
+                    string label = match.Groups[2].Value;
+                    var propertiesString = match.Groups[3].Value;
+
+                    var properties = string.IsNullOrEmpty(propertiesString)
+                        ? new Dictionary<string, string>()
+                        : propertiesString.Split(',')
+                                          .Select(p => p.Split(':'))
+                                          .ToDictionary(
+                                              p => p[0].Trim(),
+                                              p => p[1].Trim().Trim('\'')
+                                          );
+
+                    var matchingNodes = Nodes.Where(n => (string.IsNullOrEmpty(label) || n.Label == label) &&
+                                                         properties.All(p => n.Properties.ContainsKey(p.Key) &&
+                                                                             n.Properties[p.Key].ToString() == p.Value) &&
+                                                         nodeCondition(n))
+                                             .ToList();
+
+                    if (matchingNodes.Count == 0)
+                    {
+                        results.Add("No matching nodes found.");
+                    }
+                    else if (!string.IsNullOrEmpty(groupByProperty))
+                    {
+                        // Group by the specified property
+                        var groupedNodes = matchingNodes.GroupBy(n => n.Properties.ContainsKey(groupByProperty)
+                                                                      ? n.Properties[groupByProperty].ToString()
+                                                                      : "NULL");
+
+                        foreach (var group in groupedNodes)
+                        {
+                            var groupKey = group.Key;
+                            var groupValues = group.ToList();
+
+                            if (isAggregation)
+                            {
+                                // Handle aggregations within each group
+                                var aggregationMatch = aggregationPattern.Match(cypher);
+                                string aggregationType = aggregationMatch.Groups[1].Value.ToUpper();
+                                string aggregationProperty = aggregationMatch.Groups[2].Value;
+
+                                var values = groupValues.Select(n => n.Properties.ContainsKey(aggregationProperty)
+                                                                     ? Convert.ToDouble(n.Properties[aggregationProperty])
+                                                                     : 0).ToList();
+
+                                double result = aggregationType switch
+                                {
+                                    "COUNT" => values.Count,
+                                    "SUM" => values.Sum(),
+                                    "AVG" => values.Average(),
+                                    "MIN" => values.Min(),
+                                    "MAX" => values.Max(),
+                                    _ => 0
+                                };
+
+                                aggregationResults.Add($"{aggregationType}({aggregationProperty}) for {groupKey} = {result}");
+                            }
+                            else
+                            {
+                                aggregationResults.Add($"Group: {groupKey}, Nodes: [{string.Join(", ", groupValues.Select(v => v.Id))}]");
+                            }
+                        }
+                    }
+                    else if (isAggregation)
+                    {
+                        var aggregationMatch = aggregationPattern.Match(cypher);
+                        string aggregationType = aggregationMatch.Groups[1].Value.ToUpper();
+                        string property = aggregationMatch.Groups[2].Value;
+
+                        var values = matchingNodes.Select(n => n.Properties.ContainsKey(property) ? Convert.ToDouble(n.Properties[property]) : 0).ToList();
+
+                        double result = aggregationType switch
+                        {
+                            "COUNT" => values.Count,
+                            "SUM" => values.Sum(),
+                            "AVG" => values.Average(),
+                            "MIN" => values.Min(),
+                            "MAX" => values.Max(),
+                            _ => 0
+                        };
+
+                        aggregationResults.Add($"{aggregationType}({property}) = {result}");
+                    }
+                    else
+                    {
+                        var formattedResults = matchingNodes.Select(n =>
+                        {
+                            if (returnClause.Count == 0)
+                                return $"Node(Id: {n.Id}, Label: {n.Label}, Properties: {JsonConvert.SerializeObject(n.Properties)})";
+
+                            var computedValues = returnClause.Select(expr =>
+                            {
+                                try
+                                {// Handle string and numeric functions
+                                    if (expr.StartsWith("CONCAT", StringComparison.OrdinalIgnoreCase))
+                                        return $"{expr} = '{HandleConcatFunction(n, expr)}'";
+
+                                    if (expr.StartsWith("SUBSTR", StringComparison.OrdinalIgnoreCase))
+                                        return $"{expr} = '{HandleSubstrFunction(n, expr)}'";
+
+                                    if (expr.StartsWith("UPPER", StringComparison.OrdinalIgnoreCase))
+                                        return $"{expr} = '{HandleUpperFunction(n, expr)}'";
+
+                                    if (expr.StartsWith("LOWER", StringComparison.OrdinalIgnoreCase))
+                                        return $"{expr} = '{HandleLowerFunction(n, expr)}'";
+
+                                    if (expr.StartsWith("LENGTH", StringComparison.OrdinalIgnoreCase))
+                                        return $"{expr} = {HandleLengthFunction(n, expr)}";
+
+                                    if (expr.StartsWith("TRIM", StringComparison.OrdinalIgnoreCase))
+                                        return $"{expr} = '{HandleTrimFunction(n, expr)}'";
+
+                                    if (expr.StartsWith("ABS", StringComparison.OrdinalIgnoreCase))
+                                        return $"{expr} = {HandleAbsFunction(n, expr)}";
+
+                                    if (expr.StartsWith("ROUND", StringComparison.OrdinalIgnoreCase))
+                                        return $"{expr} = {HandleRoundFunction(n, expr)}";
+
+                                    if (expr.StartsWith("FLOOR", StringComparison.OrdinalIgnoreCase))
+                                        return $"{expr} = {HandleFloorFunction(n, expr)}";
+
+                                    if (expr.StartsWith("CEIL", StringComparison.OrdinalIgnoreCase))
+                                        return $"{expr} = {HandleCeilFunction(n, expr)}";
+
+                                    // Evaluate expressions dynamically using node properties
+                                    var expression = expr;
+                                    foreach (var prop in n.Properties)
+                                    {
+                                        expression = Regex.Replace(expression, $@"\b{prop.Key}\b", prop.Value.ToString());
+
+                                    }
+
+                                    var result = new DataTable().Compute(expression, "");
+                                    return $"{expr} = {result}";
+                                }
+                                catch
+                                {
+                                    return $"Invalid expression: {expr}";
+                                }
+                            });
+
+                            return string.Join(", ", computedValues);
+                        });
+
+                        // Apply ORDER BY if specified
+                        if (!string.IsNullOrEmpty(orderByProperty))
+                        {
+                            formattedResults = orderByDirection == "ASC"
+                            ? formattedResults.OrderBy(res => double.TryParse(res, out var num) ? num : double.MaxValue).ToList()
+                            : formattedResults.OrderByDescending(res => double.TryParse(res, out var num) ? num : double.MinValue).ToList();
+                        }
+                        // Apply OFFSET if specified
+                        var offsetMatch = offsetPattern.Match(cypher);
+                        int offset = offsetMatch.Success ? int.Parse(offsetMatch.Groups[1].Value) : 0;
+                        formattedResults = formattedResults.Skip(offset).ToList();
+
+                        // Apply LIMIT if specified
+                        var limitMatch = limitPattern.Match(cypher);
+                        int limit = limitMatch.Success ? int.Parse(limitMatch.Groups[1].Value) : formattedResults.Count();
+                        formattedResults = formattedResults.Take(limit).ToList();
+
+                        results.AddRange(formattedResults);
+                    }
+                }
+                else if (relationshipPattern.IsMatch(cypher))
+                {
+                    var match = relationshipPattern.Match(cypher);
+                    string startVariable = match.Groups[1].Value;
+                    string startLabel = match.Groups[2].Value;
+                    string relationshipType = match.Groups[3].Value;
+                    string endVariable = match.Groups[4].Value;
+                    string endLabel = match.Groups[5].Value;
+
+                    // Filter edges by relationship type and node labels
+                    var matchingEdges = Edges.Where(e =>
+                                (string.IsNullOrEmpty(relationshipType) || e.RelationshipType == relationshipType) &&
+                                (string.IsNullOrEmpty(startLabel) || Nodes.Any(n => n.Id == e.FromId && n.Label == startLabel)) &&
+                                (string.IsNullOrEmpty(endLabel) || Nodes.Any(n => n.Id == e.ToId && n.Label == endLabel)))
+                            .ToList();
+
+                    if (matchingEdges.Count == 0)
+                        return "No matching relationships found.";
+
+                    var result = matchingEdges.Select(e =>
+                        $"Edge(From: {e.FromId}, To: {e.ToId}, Relationship: {e.RelationshipType}, Properties: {JsonConvert.SerializeObject(e.Properties)})")
+                        .ToList();
+
+                    return $"Found {matchingEdges.Count} relationships:\n" + string.Join("\n", result);
+                }
+                else
+                {
+                    results.Add("Invalid MATCH syntax.");
+                }
+
+                return string.Join("\n", results);
             }
-            return matches;
+            catch (Exception ex)
+            {
+                return $"Error: {ex.Message}";
+            }
         }
 
-   
+        // Helper methods for handling various functions
+
+        private string HandleConcatFunction(Node node, string expression)
+        {
+            var args = ExtractFunctionArguments(expression, "CONCAT");
+            return string.Join("", args.Select(arg => GetNodePropertyValue(node, arg)));
+        }
+
+        private string HandleSubstrFunction(Node node, string expression)
+        {
+            var args = ExtractFunctionArguments(expression, "SUBSTR");
+            if (args.Count < 2 || args.Count > 3)
+                throw new Exception("Invalid SUBSTR usage");
+
+            var value = GetNodePropertyValue(node, args[0]);
+            var start = int.Parse(args[1]);
+            var length = args.Count == 3 ? int.Parse(args[2]) : value.Length - start;
+
+            return value.Substring(start, Math.Min(length, value.Length - start));
+        }
+
+        private string HandleUpperFunction(Node node, string expression)
+        {
+            var args = ExtractFunctionArguments(expression, "UPPER");
+            var value = GetNodePropertyValue(node, args[0]);
+            return value.ToUpper();
+        }
+
+        private string HandleLowerFunction(Node node, string expression)
+        {
+            var args = ExtractFunctionArguments(expression, "LOWER");
+            var value = GetNodePropertyValue(node, args[0]);
+            return value.ToLower();
+        }
+
+        private int HandleLengthFunction(Node node, string expression)
+        {
+            var args = ExtractFunctionArguments(expression, "LENGTH");
+            var value = GetNodePropertyValue(node, args[0]);
+            return value.Length;
+        }
+
+        private string HandleTrimFunction(Node node, string expression)
+        {
+            var args = ExtractFunctionArguments(expression, "TRIM");
+            var value = GetNodePropertyValue(node, args[0]);
+            return value.Trim();
+        }
+
+        private double HandleAbsFunction(Node node, string expression)
+        {
+            var args = ExtractFunctionArguments(expression, "ABS");
+            var value = double.Parse(GetNodePropertyValue(node, args[0]));
+            return Math.Abs(value);
+        }
+
+        private double HandleRoundFunction(Node node, string expression)
+        {
+            var args = ExtractFunctionArguments(expression, "ROUND");
+            var value = double.Parse(GetNodePropertyValue(node, args[0]));
+            var decimals = args.Count == 2 ? int.Parse(args[1]) : 0;
+            return Math.Round(value, decimals);
+        }
+
+        private double HandleFloorFunction(Node node, string expression)
+        {
+            var args = ExtractFunctionArguments(expression, "FLOOR");
+            var value = double.Parse(GetNodePropertyValue(node, args[0]));
+            return Math.Floor(value);
+        }
+
+        private double HandleCeilFunction(Node node, string expression)
+        {
+            var args = ExtractFunctionArguments(expression, "CEIL");
+            var value = double.Parse(GetNodePropertyValue(node, args[0]));
+            return Math.Ceiling(value);
+        }
+
+
+        // Helper method to extract function arguments
+        private List<string> ExtractFunctionArguments(string expression, string functionName)
+        {
+            var argsPattern = new Regex($@"{functionName}\((.+)\)", RegexOptions.IgnoreCase);
+            var match = argsPattern.Match(expression);
+            if (!match.Success) return new List<string>();
+
+            return match.Groups[1].Value.Split(',').Select(arg => arg.Trim()).ToList();
+        }
+
+        // Helper method to get node property value
+        private string GetNodePropertyValue(Node node, string propertyName)
+        {
+            return node.Properties.ContainsKey(propertyName) ? node.Properties[propertyName].ToString() : string.Empty;
+        }
 
 
 
-            public (bool Success, List<string> Path, double Cost, string ErrorMessage) FindPathBellmanFord(string startId, string endId)
+        private List<List<Node>> FindPaths(string startLabel, string relationshipType, string endLabel, int minLength, int maxLength)
+        {
+            var paths = new List<List<Node>>();
+
+            // Find all start nodes with the given label
+            var startNodes = Nodes.Where(n => string.IsNullOrEmpty(startLabel) || n.Label == startLabel).ToList();
+
+            // Recursive DFS to find paths
+            foreach (var startNode in startNodes)
+            {
+                var visited = new HashSet<string>(); // Track visited nodes to avoid cycles
+                var currentPath = new List<Node>();
+                DFS(startNode, relationshipType, endLabel, minLength, maxLength, 0, visited, currentPath, paths);
+            }
+
+            return paths;
+        }
+
+        private void DFS(Node currentNode, string relationshipType, string endLabel, int minLength, int maxLength, int currentLength,
+                         HashSet<string> visited, List<Node> currentPath, List<List<Node>> paths)
+        {
+            visited.Add(currentNode.Id);
+            currentPath.Add(currentNode);
+
+            // If current path length is within the desired range and the end label matches, add the path to the result
+            if (currentLength >= minLength && currentLength <= maxLength &&
+                (string.IsNullOrEmpty(endLabel) || currentNode.Label == endLabel))
+            {
+                paths.Add(new List<Node>(currentPath)); // Add a copy of the current path
+            }
+
+            // Stop if the path exceeds maxLength
+            if (currentLength == maxLength)
+            {
+                visited.Remove(currentNode.Id);
+                currentPath.RemoveAt(currentPath.Count - 1);
+                return;
+            }
+
+            // Explore neighbors via outgoing relationships
+            var neighbors = Edges.Where(e => e.FromId == currentNode.Id && e.RelationshipType == relationshipType)
+                                 .Select(e => Nodes.FirstOrDefault(n => n.Id == e.ToId))
+                                 .Where(n => n != null && !visited.Contains(n.Id))
+                                 .ToList();
+
+            foreach (var neighbor in neighbors)
+            {
+                DFS(neighbor, relationshipType, endLabel, minLength, maxLength, currentLength + 1, visited, currentPath, paths);
+            }
+
+            // Backtrack
+            visited.Remove(currentNode.Id);
+            currentPath.RemoveAt(currentPath.Count - 1);
+        }
+
+
+
+        //public List<(Node, Node)> MatchPattern(Func<Node, bool> startCondition, string relationshipType, Func<Node, bool> endCondition)
+        //{
+        //    var matches = new List<(Node, Node)>();
+        //    foreach (var edge in Edges.Where(e => e.Relationship.Equals(relationshipType, StringComparison.OrdinalIgnoreCase)))
+        //    {
+        //        var fromNode = Nodes.FirstOrDefault(n => n.Id == edge.FromId);
+        //        var toNode = Nodes.FirstOrDefault(n => n.Id == edge.ToId);
+        //        if (fromNode != null && toNode != null && startCondition(fromNode) && endCondition(toNode))
+        //        {
+        //            matches.Add((fromNode, toNode));
+        //        }
+        //    }
+        //    return matches;
+        //}
+
+
+
+
+
+        public (bool Success, List<string> Path, double Cost, string ErrorMessage) FindPathBellmanFord(string startId, string endId)
             {
                 var distances = new Dictionary<string, double>();
                 var predecessors = new Dictionary<string, string>();

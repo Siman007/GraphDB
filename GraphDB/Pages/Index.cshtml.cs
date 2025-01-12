@@ -82,24 +82,30 @@ namespace GraphDB.Pages
                command == "h" || command == "?"))
             {
 
-                // Add the help response to the command history
-                var helpResponse = CommandUtility.GetHelpResponse();
-                if (helpResponse.Success)
-                {
-                    // Assuming you want to insert the response data into the command history
-                    Command.History.Insert(0, new CommandResponse { Command = command, Response = helpResponse.Data });
-                }
-                else
-                {
-                    // Handle the case where getting the help response fails
-                    Command.History.Insert(0, new CommandResponse { Command = command, Response = helpResponse.Message });
-                }
+                //// Add the help response to the command history
+                //var helpResponse = CommandUtility.GetHelpResponse();
+                //if (helpResponse.Success)
+                //{
+                //    // Assuming you want to insert the response data into the command history
+                //    Command.History.Insert(0, new CommandResponse { Command = command, Response = helpResponse.Data });
+                //}
+                //else
+                //{
+                //    // Handle the case where getting the help response fails
+                //    Command.History.Insert(0, new CommandResponse { Command = command, Response = helpResponse.Message });
+                //}
 
-                // Serialize the updated Command object and save it back into the session
-                var modelJson = JsonSerializer.Serialize(Command);
-                HttpContext.Session.SetString("CommandModel", modelJson);
+                //// Serialize the updated Command object and save it back into the session
+                //var modelJson = JsonSerializer.Serialize(Command);
+                //HttpContext.Session.SetString("CommandModel", modelJson);
 
+                
+                    var helpMessage = GraphHelp.GetHelp(command);
+                    Command.History.Insert(0, new CommandResponse { Command = command, Response = helpMessage });
 
+                    var modelJson = JsonSerializer.Serialize(Command);
+                    HttpContext.Session.SetString("CommandModel", modelJson);
+                
 
             }
             else if (IsDatabaseLoaded && (
