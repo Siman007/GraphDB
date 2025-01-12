@@ -51,8 +51,6 @@ namespace GraphDB
                     return HandleCreateRelationship(cypher);
                 case CypherCommandType.MatchCommand:
                     return HandleMatchCommand(cypher);
-                case CypherCommandType.MatchRelationship:
-                    return HandleMatchRelationship(cypher);
                 case CypherCommandType.DeleteNode:
                     return HandleDeleteNode(cypher);
                 case CypherCommandType.DetachDeleteNode:
@@ -89,9 +87,7 @@ namespace GraphDB
                     return HandleFindRelationships(cypher);
                 case CypherCommandType.FindNeighbors:
                     return HandleFindNeighbors(cypher);
-                    
-                case CypherCommandType.MatchPattern:
-                    return HandleMatchPattern(cypher);
+       
                 default:
                     return ApiResponse<string>.ErrorResponse("Unsupported Cypher command.");
             }

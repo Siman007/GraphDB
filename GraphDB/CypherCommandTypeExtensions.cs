@@ -8,7 +8,6 @@ namespace GraphDB
         MergeNode,
         CreateRelationship,
         MatchCommand,
-        MatchRelationship,
         DeleteNode,
         DetachDeleteNode,
         DeleteRelationship,
@@ -27,8 +26,7 @@ namespace GraphDB
         AggregateAvg,
         FindRelationships,
         FindNeighbors,
-        MatchPattern,
-        // Extend with other command types as necessary
+        // Extend with other command types 
     }
 
     public static class CypherCommandTypeExtensions
@@ -43,8 +41,6 @@ namespace GraphDB
                 return CypherCommandType.CreateNode;
             if (cypher.StartsWith("MERGE"))
                 return CypherCommandType.MergeNode;
-            if (cypher.StartsWith("MATCH") && cypher.Contains(")-[") && cypher.Contains("]->("))
-                return CypherCommandType.MatchRelationship;
             if (cypher.StartsWith("MATCH"))
                 return CypherCommandType.MatchCommand;
             if (cypher.StartsWith("DELETE"))
@@ -79,8 +75,7 @@ namespace GraphDB
                 return CypherCommandType.AggregateAvg;
             if (cypher.StartsWith("FIND RELATIONSHIPS"))
                 return CypherCommandType.FindRelationships;
-            if (cypher.StartsWith("MATCH PATTERN"))
-                return CypherCommandType.MatchPattern;
+
 
             return CypherCommandType.Unknown;
         }
