@@ -1,40 +1,15 @@
 {
   "Nodes": [
     {
-      "Id": "n1",
+      "Id": "p1",
       "Label": null,
       "Properties": {
         "id": "1",
-        "name": "Alice"
-      }
-    },
-    {
-      "Id": "n2",
-      "Label": null,
-      "Properties": {
-        "id": "2",
-        "name": "Bob"
+        "name": "Alice",
+        "age": 30,
+        "city": "New York"
       }
     }
   ],
-  "Edges": [
-    {
-      "FromId": "n1",
-      "ToId": "n2",
-      "Relationship": null,
-      "Weight": 0.0,
-      "Properties": {},
-      "RelationshipType": "KNOWS"
-    },
-    {
-      "FromId": "n2",
-      "ToId": "n1",
-      "Relationship": null,
-      "Weight": 0.0,
-      "Properties": {
-        "since": "2022"
-      },
-      "RelationshipType": "KNOWS"
-    }
-  ]
+  "Edges": []
 }

@@ -1,0 +1,66 @@
+{
+  "Nodes": [
+    {
+      "Id": "p1",
+      "Label": "Person",
+      "Properties": {
+        "id": "1",
+        "name": "Alice",
+        "age": 30,
+        "city": "New York"
+      }
+    },
+    {
+      "Id": "p2",
+      "Label": "Person",
+      "Properties": {
+        "id": "2",
+        "name": "Bob",
+        "age": 35,
+        "city": "London"
+      }
+    },
+    {
+      "Id": "p3",
+      "Label": "Person",
+      "Properties": {
+        "id": "3",
+        "name": "Charlie",
+        "age": 25,
+        "city": "San Francisco"
+      }
+    }
+  ],
+  "Edges": [
+    {
+      "FromId": "p1",
+      "ToId": "p2",
+      "Relationship": null,
+      "Weight": 0.0,
+      "Properties": {
+        "since": 2015
+      },
+      "RelationshipType": "FRIEND"
+    },
+    {
+      "FromId": "p2",
+      "ToId": "p3",
+      "Relationship": null,
+      "Weight": 0.0,
+      "Properties": {
+        "since": 2018
+      },
+      "RelationshipType": "FRIEND"
+    },
+    {
+      "FromId": "p3",
+      "ToId": "p1",
+      "Relationship": null,
+      "Weight": 0.0,
+      "Properties": {
+        "since": 2020
+      },
+      "RelationshipType": "COLLEAGUE"
+    }
+  ]
+}

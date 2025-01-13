@@ -3,40 +3,101 @@
 @using Newtonsoft.Json
 @model GraphDB.Pages.IndexModel
 @section Scripts {
-<script src="https://cdn.jsdelivr.net/npm/vue@2.6.12"></script>
-<script>
-        document.addEventListener('DOMContentLoaded', function () {
-            var commandHistory = @Html.Raw(Json.Serialize(Model.Command.History));
-            commandHistory.forEach(function(item, index) {
-                createVueApp(index, item.response);
-            });
-            // Set focus to the command input field
-            document.getElementById('commandInput').focus();
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.12"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var commandHistory = @Html.Raw(Json.Serialize(Model.Command.History));
+        commandHistory.forEach(function(item, index) {
+            createVueApp(index, item.response);
         });
 
-        function createVueApp(elementIndex, responseData) {
-            new Vue({
-                el: '#app-' + elementIndex,
-                data: {
-                    itemResponse: responseData
-                },
-                computed: {
-                    formattedResponse: function() {
-                        return this.itemResponse;
+        // Set focus to the command input field
+        document.getElementById('commandInput').focus();
+    });
+
+    function createVueApp(elementIndex, responseData) {
+        new Vue({
+            el: '#app-' + elementIndex,
+            data: {
+                itemResponse: responseData
+            },
+            computed: {
+                formattedResponse: function() {
+                    try {
+                        var parsedData = JSON.parse(this.itemResponse);
+                        if (Array.isArray(parsedData)) {
+                            // Render as table if response is an array of relationships
+                            return generateTable(parsedData);
+                        } else {
+                            // Render as plain JSON
+                            return `<pre>${JSON.stringify(parsedData, null, 2)}</pre>`;
+                        }
+                    } catch (e) {
+                        return `<pre>${this.itemResponse}</pre>`;
                     }
                 }
-            });
+            }
+        });
+    }
+
+    function generateTable(data) {
+        var tableHtml = `<table id="relationshipTable" border="1">
+                            <thead>
+                                <tr>
+                                    <th>From</th>
+                                    <th>To</th>
+                                    <th>Relationship Type</th>
+                                    <th>Properties</th>
+                                </tr>
+                            </thead>
+                            <tbody>`;
+        data.forEach(function(item) {
+            var match = item.match(/Edge\(From: (\w+), To: (\w+), Relationship: (\w+), Properties: (.*)\)/);
+            if (match) {
+                tableHtml += `<tr>
+                                <td>${match[1]}</td>
+                                <td>${match[2]}</td>
+                                <td>${match[3]}</td>
+                                <td>${match[4]}</td>
+                              </tr>`;
+            }
+        });
+        tableHtml += `</tbody></table>
+                      <button onclick="downloadCSV()">Download as CSV</button>`;
+        return tableHtml;
+    }
+
+    function downloadCSV() {
+        var table = document.getElementById("relationshipTable");
+        if (!table) return;
+
+        var rows = table.getElementsByTagName("tr");
+        var csvContent = "";
+
+        for (var i = 0; i < rows.length; i++) {
+            var cells = rows[i].getElementsByTagName(i === 0 ? "th" : "td");
+            var rowData = [];
+            for (var j = 0; j < cells.length; j++) {
+                rowData.push('"' + cells[j].innerText.replace(/"/g, '""') + '"');
+            }
+            csvContent += rowData.join(",") + "\n";
         }
+
+        var blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+        var link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = "relationships.csv";
+        link.click();
+    }
+
     function reExecuteCommand(command) {
         // Set the command input value
         document.getElementById('commandInput').value = command;
         // Submit the form
         document.getElementById('commandForm').submit();
     }
-</script>
+    </script>
 }
-
-
 
 <!-- Database Status Display -->
 <section class="database-status">
@@ -45,9 +106,9 @@
 
 <!-- Command Input Form -->
 <section class="command-input">
-    <form  id="commandForm" method="post" asp-page-handler="ExecuteCommand" class="form-container">
+    <form id="commandForm" method="post" asp-page-handler="ExecuteCommand" class="form-container">
         <div class="form-group flex-container">
-            <input type="text" id="commandInput"  asp-for="Command.Command" placeholder="Enter command" class="form-control flex-input" />
+            <input type="text" id="commandInput" asp-for="Command.Command" placeholder="Enter command" class="form-control flex-input" />
             <button type="submit" class="btn btn-primary">Execute</button>
         </div>
     </form>
@@ -69,7 +130,7 @@
                 </div>
                 <div id="@($"app-{item.index}")">
                     <!-- Vue will render the HTML content of itemResponse here -->
-                    <pre v-html="formattedResponse"></pre>
+                    <div v-html="formattedResponse"></div>
                 </div>
                 <div class="delete-button-container">
                     <!-- Delete Command Button -->
@@ -79,7 +140,6 @@
                 </div>
             </div>
         }
-
     }
     else
     {

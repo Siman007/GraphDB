@@ -28,12 +28,15 @@ namespace GraphDB.Pages
 
         public void OnGet()
         {
-            if (GraphManager.CurrentGraph == null)
+            LoadCommandModelFromSession();
+
+            var currentDatabaseName = HttpContext.Session.GetString("CurrentDatabase");
+            if (string.IsNullOrEmpty(currentDatabaseName) || GraphManager.CurrentGraph == null)
             {
                 Message = "No database is currently loaded.";
-                LoadCommandModelFromSession();
                 return;
             }
+
             CurrentDatabase = GraphManager.CurrentGraph.GetDatabaseName();
 
             Message = IsDatabaseLoaded ? $"Current Database: {CurrentDatabase}" : "No database is currently loaded.";
@@ -229,8 +232,15 @@ namespace GraphDB.Pages
                         }
                         else
                         {
-                            CreateDatabase(dbName);
-                            Console.WriteLine($"Database '{dbName}' created successfully.");
+                            if (CreateDatabase(dbName))
+                            {
+                                Console.WriteLine($"Database '{dbName}' created successfully.");
+                            }
+                            else
+                            {
+                                Console.WriteLine($"Error: Failed to  create '{dbName}'.");
+                            }
+                           
                         }
                     }
                     else
@@ -245,23 +255,24 @@ namespace GraphDB.Pages
                         var dbName = parameter.Substring(8).Trim();
                         if (string.IsNullOrEmpty(dbName))
                         {
+                            Message = "Error: Please specify a valid database name.";
                             Console.WriteLine("Error: Please specify a valid database name.");
                         }
                         else
                         {
-                            var success = LoadDatabase(dbName);
-                            if (success)
+                            if (LoadDatabase(dbName))
                             {
                                 Console.WriteLine($"Database '{dbName}' loaded successfully.");
                             }
                             else
                             {
-                                Console.WriteLine($"Error: Database '{dbName}' could not be found.");
+                                Console.WriteLine($"Error: Failed to  find or load '{dbName}'.");
                             }
                         }
                     }
                     else
                     {
+                        Message = "Error: Unknown command. Did you mean 'LOAD DATABASE [dbname]'?";
                         Console.WriteLine("Error: Unknown command. Did you mean 'LOAD DATABASE [dbname]'?");
                     }
                     break;
@@ -283,14 +294,15 @@ namespace GraphDB.Pages
         }
 
 
-        private void CreateDatabase(string databaseName)
+        private bool CreateDatabase(string databaseName)
         {
             LoadCommandModelFromSession(); // Ensure we have the latest history
 
             var graph = new Graph(databaseName);
             Command.History.Insert(0, new CommandResponse { Command = $"create database {databaseName}", Response = graph.CreateDatabase() });
 
-            if (graph.GetDatabaseLoaded())
+            var success = graph.GetDatabaseLoaded();
+            if (success)
             {
                 GraphManager.SetCurrentGraph(graph); // Use the method to set the current graph
                 HttpContext.Session.SetString("CurrentDatabase", databaseName);
@@ -299,6 +311,7 @@ namespace GraphDB.Pages
             // Serialize the updated Command object and save it back into the session
             var modelJson = JsonSerializer.Serialize(Command);
             HttpContext.Session.SetString("CommandModel", modelJson);
+            return success;
         }
 
 
@@ -306,14 +319,22 @@ namespace GraphDB.Pages
         {
             LoadCommandModelFromSession(); // Ensure we have the latest history
             var graph = new Graph(databaseName);
-            var success = graph.LoadGraph();
+            Command.History.Insert(0, new CommandResponse { Command = $"load database {databaseName}", Response = graph.LoadDatabase() });
+
+            var success = graph.GetDatabaseLoaded();
 
             if (success)
             {
+                
+
+
                 GraphManager.SetCurrentGraph(graph); // Use the method to set the current graph
                 HttpContext.Session.SetString("CurrentDatabase", databaseName);
             }
 
+            // Serialize the updated Command object and save it back into the session
+            var modelJson = JsonSerializer.Serialize(Command);
+            HttpContext.Session.SetString("CommandModel", modelJson);
             return success;
         }
 

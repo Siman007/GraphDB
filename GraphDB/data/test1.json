@@ -1,11 +1,13 @@
 {
   "Nodes": [
     {
-      "Id": "n1",
+      "Id": "p1",
       "Label": null,
       "Properties": {
         "id": "1",
-        "name": "Alice"
+        "name": "Alice",
+        "age": 30,
+        "city": "New York"
       }
     }
   ],
