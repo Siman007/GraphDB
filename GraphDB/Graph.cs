@@ -1000,13 +1000,29 @@ namespace GraphDB
         private string HandleMatchCommand(string cypher)
         {
             // Patterns
-            var nodePattern = new Regex(@"MATCH \((\w+):?(\w*) \{?([^}]*)\}?\)", RegexOptions.IgnoreCase);
+            // var nodePattern = new Regex(@"^MATCH\s*\((\w+):?(\w*)(?:\s*\{([^}]*)\})?\)\s+RETURN\s+(.+)$", RegexOptions.IgnoreCase);
+            var nodePattern = new Regex(
+                 @"^(?i)MATCH\s*\((?<alias>\w+):(?<label>\w+)(?:\s*\{(?<props>[^}]+)\})?\)" +
+                 @"(?:\s+WHERE\s+(?<where>.*?))?\s+RETURN\s+(?<returns>.+?)(?=\s+ORDER\s+BY|\s*;?$)" +
+                 @"(?:\s+ORDER\s+BY\s+(?<order>\w+))?\s*;?$",
+                 RegexOptions.IgnoreCase
+             );
+
+
+            // var nodePattern = new Regex(@"MATCH \((\w+):?(\w*) \{?([^}]*)\}?\)", RegexOptions.IgnoreCase);
             var pathPattern = new Regex(@"MATCH (\w+) = \((\w+):?(\w*)\)-\[:(\w+)\*(\d*)\.\.(\d*)\]->\((\w+):?(\w*)\)", RegexOptions.IgnoreCase);
             var relationshipPattern = new Regex(
-                @"MATCH\s*\((?<alias1>\w+):?(?<label1>\w*)?(?:\s*\{(?<props1>[^}]+)\})?\)" +
-                @"-\s*\[:(?<relType>\w+)\]\s*->" +
-                @"\((?<alias2>\w+):?(?<label2>\w*)?(?:\s*\{(?<props2>[^}]+)\})?\)\s*" +
-                @"RETURN\s+(?<returnAlias>\w+)\.(?<returnProp>\w+)(?:\s+AS\s+(?<returnAs>\w+))?",
+                @"MATCH\s*\(" +
+                    @"(?<alias1>\w*)\s*:?" +
+                    @"(?<label1>\w*)\s*" +
+                    @"(?:\{(?<props1>[^}]*)\})?\)" +
+                @"-\s*\[" +
+                     @"(?:(?<relAlias>\w+)?(?:\:(?<relType>\w+))?)" +
+                @"\]\s*->\(" +
+                    @"(?<alias2>\w*)\s*:?" +
+                    @"(?<label2>\w*)\s*" +
+                    @"(?:\{(?<props2>[^}]*)\})?\)\s+" +
+                @"RETURN\s+(?<returnExpressions>.*)$",
                 RegexOptions.IgnoreCase
             );
 
@@ -1142,11 +1158,20 @@ namespace GraphDB
                     string startNodeAlias = match.Groups["alias1"].Value;
                     string startLabel = match.Groups["label1"].Value;
                     var startPropsString = match.Groups["props1"].Value;
+
+                    // Parse relationship alias & optional type
+                    string relAlias = match.Groups["relAlias"].Value;
                     string relType = match.Groups["relType"].Value;
+
+                    // Parse second node alias & label
                     string endNodeAlias = match.Groups["alias2"].Value;
-                    string returnAlias = match.Groups["returnAlias"].Value;
-                    string returnProperty = match.Groups["returnProp"].Value;
-                    string returnAs = match.Groups["returnAs"].Value; // e.g. "FriendName"
+
+                    // Grab everything after RETURN
+                    var returnExpressions = match.Groups["returnExpressions"].Value;
+                    var splittedExpressions = returnExpressions
+                        .Split(',')
+                        .Select(e => e.Trim())
+                        .ToList();
 
 
                     // Parse the start node properties
@@ -1167,6 +1192,59 @@ namespace GraphDB
                     if (matchingEdges.Count == 0)
                         return JsonConvert.SerializeObject(ApiResponse<string>.ErrorResponse("No matching relationships found."));
 
+
+                    var aggPattern = new Regex(@"^(?<func>COUNT|SUM|AVG|MIN|MAX)\((?<alias>\w+)\)\s*(?:AS\s+(?<aliasAs>\w+))?$", RegexOptions.IgnoreCase);
+                    var aggMatch = splittedExpressions.FirstOrDefault(expr => aggPattern.IsMatch(expr));
+
+                    if (!string.IsNullOrEmpty(aggMatch))
+                    {
+                        var mAgg = aggPattern.Match(aggMatch);
+                        var func = mAgg.Groups["func"].Value.ToUpper();
+                        var aggProp = mAgg.Groups["prop"].Value; // May be empty (for COUNT)
+                        var aliasAs = mAgg.Groups["aliasAs"].Value;
+                        var finalKey = string.IsNullOrEmpty(aliasAs) ? $"{func}(r)" : aliasAs;
+                        double aggResult = 0;
+                        if (func == "COUNT")
+                        {
+                            aggResult = matchingEdges.Count;
+                        }
+                        else
+                        {
+                            if (string.IsNullOrEmpty(aggProp))
+                                return JsonConvert.SerializeObject(ApiResponse<string>
+                                    .ErrorResponse($"Aggregation function {func} requires a property."));
+
+                            // Assume relationship has a Properties dictionary containing numeric values.
+                            var values = matchingEdges.Select(edge =>
+                            {
+                                if (edge.Properties.ContainsKey(aggProp))
+                                {
+                                    double.TryParse(edge.Properties[aggProp].ToString(), out double v);
+                                    return v;
+                                }
+                                return 0.0;
+                            }).ToList();
+
+                            switch (func)
+                            {
+                                case "SUM":
+                                    aggResult = values.Sum();
+                                    break;
+                                case "AVG":
+                                    aggResult = values.Average();
+                                    break;
+                                case "MIN":
+                                    aggResult = values.Min();
+                                    break;
+                                case "MAX":
+                                    aggResult = values.Max();
+                                    break;
+                            }
+                        }
+                        return JsonConvert.SerializeObject(ApiResponse<List<string>>
+                            .SuccessResponse(new List<string> { $"{finalKey} = {aggResult}" }, $"Found {matchingEdges.Count} relationships."));
+                    }
+
                     // Fill alias map so we can do "RETURN friend.name"
                     foreach (var edge in matchingEdges)
                     {
@@ -1176,33 +1254,77 @@ namespace GraphDB
                         aliasToNodeMap[endNodeAlias] = endNode;   // e.g. "friend"
                     }
 
+
+
                     // Build the return list for friend.name AS FriendName
                     var returnList = new List<string>();
                     foreach (var edge in matchingEdges)
                     {
-                        if (aliasToNodeMap.TryGetValue(returnAlias, out var node))
+                        // For each edge, build up a single "row" of results
+                        var rowResults = new List<string>();
+
+                        foreach (var expr in splittedExpressions)
                         {
-                            if (node.Properties.ContainsKey(returnProperty))
+                            // Simple pattern to detect "alias.prop" or "type(r)"
+                            //var retRegex = new Regex(
+                            //    @"^(?:(?<alias>\w+)\.(?<prop>\w+)|type\((?<rel>\w+)\))" +
+                            //    @"(?:\s+AS\s+(?<aliasAs>\w+))?$",
+                            //    RegexOptions.IgnoreCase
+                            //);
+                            var retRegex = new Regex(
+                                @"^(?:(?<func>COUNT|SUM|AVG|MIN|MAX)\((?<alias>\w+)\)|(?<alias>\w+)\.(?<prop>\w+)|type\((?<rel>\w+)\))" +
+                                @"(?:\s+AS\s+(?<aliasAs>\w+))?$",
+                                RegexOptions.IgnoreCase
+                            );
+
+                            var mRet = retRegex.Match(expr);
+                            if (!mRet.Success)
                             {
-                                var rawVal = node.Properties[returnProperty];
-                                var finalKey = string.IsNullOrEmpty(returnAs) ? returnProperty : returnAs;
-                                returnList.Add($"{finalKey} = {rawVal}");
+                                rowResults.Add($"Could not parse return expression '{expr}'.");
+                                continue;
                             }
+
+                            // Handle "type(r)" case
+                            if (!string.IsNullOrEmpty(mRet.Groups["rel"].Value))
+                            {
+                                var relAlias2 = mRet.Groups["rel"].Value; // e.g. 'r'
+                                var aliasAs2 = mRet.Groups["aliasAs"].Value;
+                                var finalKey = string.IsNullOrEmpty(aliasAs2) ? $"type({relAlias2})" : aliasAs2;
+
+                                rowResults.Add($"{finalKey} = {edge.RelationshipType}");
+                            }
+                            // Handle "alias.prop" case
                             else
                             {
-                                returnList.Add($"Node '{returnAlias}' has no property '{returnProperty}'.");
+                                var alias = mRet.Groups["alias"].Value; // e.g. 'p1'
+                                var prop = mRet.Groups["prop"].Value;   // e.g. 'name'
+                                var aliasAs = mRet.Groups["aliasAs"].Value;
+                                var finalKey = string.IsNullOrEmpty(aliasAs) ? prop : aliasAs;
+
+                                if (aliasToNodeMap.TryGetValue(alias, out var node))
+                                {
+                                    if (node.Properties.ContainsKey(prop))
+                                    {
+                                        rowResults.Add($"{finalKey} = {node.Properties[prop]}");
+                                    }
+                                    else
+                                    {
+                                        rowResults.Add($"Node '{alias}' has no property '{prop}'.");
+                                    }
+                                }
+                                else
+                                {
+                                    rowResults.Add($"Alias '{alias}' not found.");
+                                }
                             }
                         }
-                        else
-                        {
-                            // This means the code didn't capture the alias properly
-                            returnList.Add($"Alias '{returnAlias}' not found in aliasToNodeMap.");
-                        }
-                    }
 
-                    // Return friend.name results
-                    return JsonConvert.SerializeObject(ApiResponse<List<string>>
+                        // Combine the row's results, e.g. "From = Alice, Relationship = FRIENDS, To = Bob"
+                        returnList.Add(string.Join(", ", rowResults));
+                        // Return friend.name results
+                        return JsonConvert.SerializeObject(ApiResponse<List<string>>
                         .SuccessResponse(returnList, $"Found {matchingEdges.Count} relationships."));
+                    }
                 }
 
                 // MATCH node
