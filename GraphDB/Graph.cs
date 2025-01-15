@@ -71,10 +71,12 @@ namespace GraphDB
                 _graphName = graphName;
                 _graphPath = Path.Combine(DefaultFilePath, $"{graphName}.json");
             }
-
+       
 
         public dynamic ExecuteCypherCommand(string cypher)
         {
+            cypher = CleanCypherQuery(cypher);
+
             CypherCommandType commandType = cypher.ToCommandType();
             switch (commandType)
             {
@@ -1440,12 +1442,11 @@ namespace GraphDB
                                         var apMatch = Regex.Match(expr, @"(\w+)\.(\w+)");
                                         if (apMatch.Success)
                                         {
-                                            var al = apMatch.Groups[1].Value;
                                             var pr = apMatch.Groups[2].Value;
-                                            if (aliasToNodeMap.ContainsKey(al) &&
-                                                aliasToNodeMap[al].Properties.ContainsKey(pr))
-                                                return $"{expr} = {aliasToNodeMap[al].Properties[pr]}";
-                                            return $"Cannot resolve {expr}.";
+                                            if (n.Properties.ContainsKey(pr))
+                                                return $"{expr} = {n.Properties[pr]}";
+                                            return $"Node has no property '{pr}'.";
+                                            
                                         }
                                         // String/number functions
                                         if (expr.StartsWith("CONCAT", StringComparison.OrdinalIgnoreCase))
@@ -1707,7 +1708,11 @@ namespace GraphDB
             currentPath.RemoveAt(currentPath.Count - 1);
         }
 
-
+        public static string CleanCypherQuery(string query)
+        {
+            // Trim whitespace and any trailing semicolons
+            return query.TrimEnd().TrimEnd(';').Trim();
+        }
 
         //public List<(Node, Node)> MatchPattern(Func<Node, bool> startCondition, string relationshipType, Func<Node, bool> endCondition)
         //{
