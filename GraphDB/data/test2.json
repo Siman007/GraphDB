@@ -1,15 +1,93 @@
 {
   "Nodes": [
     {
-      "Id": "p1",
-      "Label": null,
+      "Id": "a1",
+      "Label": "Actor",
       "Properties": {
-        "id": "1",
-        "name": "Alice",
-        "age": 30,
-        "city": "New York"
+        "id": "A1",
+        "name": "Keanu Reeves",
+        "born": 1964
+      }
+    },
+    {
+      "Id": "a2",
+      "Label": "Actor",
+      "Properties": {
+        "id": "A2",
+        "name": "Laurence Fishburne",
+        "born": 1961
+      }
+    },
+    {
+      "Id": "a3",
+      "Label": "Actor",
+      "Properties": {
+        "id": "A3",
+        "name": "Carrie-Anne Moss",
+        "born": 1967
+      }
+    },
+    {
+      "Id": "m1",
+      "Label": "Movie",
+      "Properties": {
+        "id": "M1",
+        "title": "The Matrix",
+        "released": 1999,
+        "genre": "Sci-Fi"
+      }
+    },
+    {
+      "Id": "m2",
+      "Label": "Movie",
+      "Properties": {
+        "id": "M2",
+        "title": "John Wick",
+        "released": 2014,
+        "genre": "Action"
       }
     }
   ],
-  "Edges": []
+  "Edges": [
+    {
+      "FromId": "a1",
+      "ToId": "m1",
+      "Relationship": null,
+      "Weight": 0.0,
+      "Properties": {
+        "role": "Neo"
+      },
+      "RelationshipType": "ACTED_IN"
+    },
+    {
+      "FromId": "a2",
+      "ToId": "m1",
+      "Relationship": null,
+      "Weight": 0.0,
+      "Properties": {
+        "role": "Morpheus"
+      },
+      "RelationshipType": "ACTED_IN"
+    },
+    {
+      "FromId": "a3",
+      "ToId": "m1",
+      "Relationship": null,
+      "Weight": 0.0,
+      "Properties": {
+        "role": "Trinity"
+      },
+      "RelationshipType": "ACTED_IN"
+    },
+    {
+      "FromId": "a1",
+      "ToId": "m2",
+      "Relationship": null,
+      "Weight": 0.0,
+      "Properties": {
+        "role": "John Wick"
+      },
+      "RelationshipType": "ACTED_IN"
+    }
+  ]
 }

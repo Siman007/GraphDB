@@ -1103,33 +1103,85 @@ namespace GraphDB
 
                 if (!string.IsNullOrEmpty(whereClause))
                 {
-                    var conditions = whereClause
-                        .Split(new[] { " AND ", " OR " }, StringSplitOptions.RemoveEmptyEntries)
-                        .Select(cond => Regex.Match(cond, @"(\w+)\s*(=|<>|>=|<=|>|<)\s*'(.+)'"))
-                        .Where(m => m.Success)
-                        .Select(m => new
-                        {
-                            Property = m.Groups[1].Value.Trim(),
-                            Operator = m.Groups[2].Value.Trim(),
-                            Value = m.Groups[3].Value.Trim()
-                        })
-                        .ToList();
+                    //var conditions = whereClause
+                    //    .Split(new[] { " AND ", " OR " }, StringSplitOptions.RemoveEmptyEntries)
+                    //    .Select(cond => Regex.Match(cond, @"(\w+)\s*(=|<>|>=|<=|>|<)\s*'(.+)'"))
+                    //    .Where(m => m.Success)
+                    //    .Select(m => new
+                    //    {
+                    //        Property = m.Groups[1].Value.Trim(),
+                    //        Operator = m.Groups[2].Value.Trim(),
+                    //        Value = m.Groups[3].Value.Trim()
+                    //    })
+                    //    .ToList();
 
+                    var conditions = whereClause.Split(new[] { " AND ", " OR " }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(cond =>
+                    {
+                        // Matches numeric (without quotes) or string (with quotes)
+                        var m = Regex.Match(cond, @"(\w+)\s*(=|<>|>=|<=|>|<)\s*(\d+|'[^']+')");
+                        if (m.Success)
+                        {
+                            var property = m.Groups[1].Value.Trim();
+                            var op = m.Groups[2].Value.Trim();
+                            var rawValue = m.Groups[3].Value.Trim();
+                            bool isNumeric = !rawValue.StartsWith("'");
+                            double numVal = 0;
+                            if (isNumeric)
+                                double.TryParse(rawValue, out numVal);
+                            else
+                                rawValue = rawValue.Trim('\'');
+
+                            return new { property, op, isNumeric, numVal, rawValue };
+                        }
+                        return null;
+                    })
+                    .Where(x => x != null)
+                    .ToList();
                     nodeCondition = n => conditions.All(cond =>
                     {
-                        if (!n.Properties.ContainsKey(cond.Property)) return false;
-                        var val = n.Properties[cond.Property].ToString();
-                        return cond.Operator switch
+                        if (!n.Properties.ContainsKey(cond.property))
+                            return false;
+                        var propValue = n.Properties[cond.property].ToString();
+
+                        if (cond.isNumeric && double.TryParse(propValue, out double nodeVal))
                         {
-                            "=" => val == cond.Value,
-                            "<>" => val != cond.Value,
-                            ">" => string.Compare(val, cond.Value) > 0,
-                            "<" => string.Compare(val, cond.Value) < 0,
-                            ">=" => string.Compare(val, cond.Value) >= 0,
-                            "<=" => string.Compare(val, cond.Value) <= 0,
-                            _ => false
-                        };
+                            return cond.op switch
+                            {
+                                "=" => nodeVal == cond.numVal,
+                                "<>" => nodeVal != cond.numVal,
+                                ">" => nodeVal > cond.numVal,
+                                "<" => nodeVal < cond.numVal,
+                                ">=" => nodeVal >= cond.numVal,
+                                "<=" => nodeVal <= cond.numVal,
+                                _ => false,
+                            };
+                        }
+                        else
+                        {
+                            return cond.op switch
+                            {
+                                "=" => propValue == cond.rawValue,
+                                "<>" => propValue != cond.rawValue,
+                                _ => false,
+                            };
+                        }
                     });
+                    //nodeCondition = n => conditions.All(cond =>
+                    //{
+                    //    if (!n.Properties.ContainsKey(cond.Property)) return false;
+                    //    var val = n.Properties[cond.Property].ToString();
+                    //    return cond.Operator switch
+                    //    {
+                    //        "=" => val == cond.Value,
+                    //        "<>" => val != cond.Value,
+                    //        ">" => string.Compare(val, cond.Value) > 0,
+                    //        "<" => string.Compare(val, cond.Value) < 0,
+                    //        ">=" => string.Compare(val, cond.Value) >= 0,
+                    //        "<=" => string.Compare(val, cond.Value) <= 0,
+                    //        _ => false
+                    //    };
+                    //});
                 }
 
                 // RETURN clause
